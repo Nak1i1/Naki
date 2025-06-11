@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мессенджер</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Модальное окно меню -->
+    <div class="modal-overlay hidden" id="modal-overlay"></div>
+    <div class="modal-menu hidden" id="modal-menu">
+        <button class="modal-close-btn" id="modal-close-btn">×</button>
+        <div class="modal-avatar">
+            <div class="avatar-large" id="modal-avatar"></div>
+            <div class="modal-username" id="modal-username"></div>
+        </div>
+        <div class="modal-divider"></div>
+        <button class="modal-button">Создать группу</button>
+        <button class="modal-button">Добавить в друзья</button>
+    </div>
+
+    <div class="top-container">
+        <div class="top-row">
+            <div class="menu-icon">☰</div>
+            <div class="avatar-small" id="top-avatar"></div>
+            <div class="search-container">
+                <input type="text" class="search-input" placeholder="поиск">
+                <span class="clear-btn">×</span>
+            </div>
+        </div>
+        
+        <div class="user-container" id="user-container"></div>
+    </div>
+    
+    <div class="right-container">
+        <div class="default-content" id="default-content">
+            <img src="https://cdn-icons-png.flaticon.com/512/5757/5757765.png" alt="Выберите чат" class="default-image">
+        </div>
+        
+        <div class="chat-container hidden" id="chat-container">
+            <div class="chat-header">
+                <div class="chat-username" id="chat-username"></div>
+            </div>
+            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" placeholder="Напишите человеку">
+            </div>
+        </div>
+    </div>
+
+    <script src="eel.js"></script>
+    <script>
+        let selectedCard = null;
+        let allUsers = [];
+        let lastUpdateTime = 0;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Обработчик клика по иконке меню
+            document.querySelector('.menu-icon').addEventListener('click', function() {
+                document.getElementById('modal-overlay').classList.remove('hidden');
+                document.getElementById('modal-menu').classList.remove('hidden');
+            });
+
+            // Закрытие модального окна при клике на оверлей
+            document.getElementById('modal-overlay').addEventListener('click', function() {
+                closeModal();
+            });
+
+            // Закрытие модального окна при клике на крестик
+            document.getElementById('modal-close-btn').addEventListener('click', function() {
+                closeModal();
+            });
+
+            // Поисковая функциональность
+            const searchInput = document.querySelector('.search-input');
+            const clearBtn = document.querySelector('.clear-btn');
+            
+            searchInput.addEventListener('focus', function() {
+                clearBtn.style.display = 'block';
+            });
+            
+            searchInput.addEventListener('blur', function() {
+                if (!this.value.trim()) {
+                    clearBtn.style.display = 'none';
+                }
+            });
+            
+            clearBtn.addEventListener('click', function() {
+                searchInput.value = '';
+                searchInput.focus();
+                filterUsers('');
+            });
+
+            // Обработчик ввода в поиск
+            searchInput.addEventListener('input', function() {
+                filterUsers(this.value.trim().toLowerCase());
+            });
+
+            // Обработчик нажатия Enter
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    const visibleCards = document.querySelectorAll('.user-bar:not(.hidden)');
+                    if (visibleCards.length === 1) {
+                        visibleCards[0].click();
+                        searchInput.value = '';
+                        filterUsers('');
+                    }
+                }
+            });
+
+            // Обработчик нажатия ESC
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    resetSelection();
+                    closeModal();
+                }
+            });
+
+            // Загрузка пользователей и запуск проверки обновлений
+            loadUsers();
+            setInterval(checkForUpdates, 1000); // Проверка каждые 3 секунды
+        });
+
+        async function checkForUpdates() {
+            try {
+                const response = await fetch('users.txt?timestamp=' + Date.now());
+                if (!response.ok) return;
+
+                const fileLastModified = new Date(response.headers.get('Last-Modified')).getTime();
+                if (fileLastModified > lastUpdateTime) {
+                    lastUpdateTime = fileLastModified;
+                    await loadUsers();
+                    console.log('Обновлено: пользователи загружены заново');
+                }
+            } catch (error) {
+                console.error('Ошибка при проверке обновлений:', error);
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.add('hidden');
+            document.getElementById('modal-menu').classList.add('hidden');
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('users.txt?timestamp=' + Date.now());
+                if (!response.ok) throw new Error('Ошибка загрузки пользователей');
+                
+                lastUpdateTime = new Date(response.headers.get('Last-Modified')).getTime();
+                const text = await response.text();
+                
+                allUsers = text.split('\n')
+                    .filter(line => line.trim())
+                    .map(line => {
+                        const [name, avatarUrl] = line.split(',');
+                        return { name: name.trim(), avatarUrl: avatarUrl.trim() };
+                    });
+                
+                if (allUsers.length === 0) return;
+                
+                // Установка аватара текущего пользователя
+                const topAvatar = document.getElementById('top-avatar');
+                topAvatar.style.backgroundImage = `url('${allUsers[0].avatarUrl}')`;
+                
+                // Установка данных в модальное окно
+                const modalAvatar = document.getElementById('modal-avatar');
+                const modalUsername = document.getElementById('modal-username');
+                modalAvatar.style.backgroundImage = `url('${allUsers[0].avatarUrl}')`;
+                modalUsername.textContent = allUsers[0].name;
+                
+                // Загрузка шаблона карточки
+                const templateResponse = await fetch('user-card.html');
+                if (!templateResponse.ok) throw new Error('Ошибка загрузки шаблона');
+                const templateText = await templateResponse.text();
+                
+                // Генерация карточек
+                const container = document.getElementById('user-container');
+                container.innerHTML = '';
+                
+                allUsers.forEach((user, index) => {
+                    const displayName = index === 0 ? "Вы" : user.name;
+                    const cardHtml = templateText
+                        .replace(/{{username}}/g, displayName)
+                        .replace(/{{avatarUrl}}/g, user.avatarUrl);
+                    const cardElement = document.createElement('div');
+                    cardElement.innerHTML = cardHtml;
+                    
+                    const card = cardElement.firstElementChild;
+                    card.dataset.originalName = user.name.toLowerCase();
+                    card.dataset.displayName = displayName.toLowerCase();
+                    
+                    card.addEventListener('click', function() {
+                        if (selectedCard) {
+                            selectedCard.classList.remove('selected');
+                        }
+                        
+                        this.classList.add('selected');
+                        selectedCard = this;
+                        
+                        showChat(index === 0 ? "Вы" : user.name);
+                    });
+                    
+                    container.appendChild(card);
+                });
+                
+            } catch (error) {
+                console.error('Ошибка:', error);
+            }
+        }
+
+        function filterUsers(searchTerm) {
+            const cards = document.querySelectorAll('.user-bar');
+            const searchLower = searchTerm.toLowerCase();
+            
+            cards.forEach(card => {
+                const originalName = card.dataset.originalName;
+                const displayName = card.dataset.displayName;
+                
+                if (searchLower === '' || 
+                    originalName.includes(searchLower) || 
+                    displayName.includes(searchLower)) {
+                    card.classList.remove('hidden');
+                } else {
+                    card.classList.add('hidden');
+                }
+            });
+        }
+
+        function showChat(username) {
+            const defaultContent = document.getElementById('default-content');
+            const chatContainer = document.getElementById('chat-container');
+            const chatUsername = document.getElementById('chat-username');
+            
+            defaultContent.classList.add('hidden');
+            chatContainer.classList.remove('hidden');
+            chatUsername.textContent = username;
+        }
+
+        function resetSelection() {
+            const defaultContent = document.getElementById('default-content');
+            const chatContainer = document.getElementById('chat-container');
+            
+            if (selectedCard) {
+                selectedCard.classList.remove('selected');
+                selectedCard = null;
+            }
+            
+            defaultContent.classList.remove('hidden');
+            chatContainer.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
