@@ -66,10 +66,15 @@ h1 {
 .form-container {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    /* gap: 15px; Уберём, чтобы задать отступы индивидуально */
 }
 
-input {
+/* Отступы между input в обеих формах */
+#register-form input,
+#login-form input {
+    display: block;
+    width: 100%;
+    margin-bottom: 15px; /* расстояние между полями */
     padding: 12px 15px;
     border: 1px solid #ddd;
     border-radius: 8px;
@@ -78,11 +83,14 @@ input {
     transition: border-color 0.3s;
 }
 
-input:focus {
+#register-form input:focus,
+#login-form input:focus {
     border-color: #4CAF50;
 }
 
-button {
+/* Кнопка регистрации — отделена от полей большим отступом сверху */
+#register-btn {
+    margin-top: 20px; /* отступ сверху */
     padding: 12px;
     background-color: #4CAF50;
     color: white;
@@ -92,9 +100,31 @@ button {
     font-size: 16px;
     font-weight: bold;
     transition: background-color 0.3s;
+    width: 100%; /* кнопка во всю ширину */
 }
 
-button:hover {
+#register-btn:hover {
+    background-color: #45a049;
+}
+
+/* Кнопка входа — отдельная строка, по центру, с отступом сверху */
+#login-btn {
+    margin-top: 20px; /* отступ сверху */
+    padding: 12px 40px; /* чуть уже, чтобы не на всю ширину */
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: background-color 0.3s;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+#login-btn:hover {
     background-color: #45a049;
 }
 
