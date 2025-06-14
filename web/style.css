@@ -182,14 +182,7 @@ body {
     font-weight: bold;
 }
 
-.chat-messages {
-    display: flex;
-    flex-direction: column; /* Изменено с column-reverse */
-    overflow-y: auto;
-    padding: 15px;
-    background-color: #fafafa;
-    flex-grow: 1;
-}
+
 
 .chat-input-container {
     padding: 10px;
@@ -438,12 +431,6 @@ body {
     margin-bottom: 10px;
 }
 
-.chat-messages {
-    flex-grow: 1;
-    overflow-y: auto;
-    padding: 15px;
-    background-color: #fafafa;
-}
 
 .message-input-container {
     padding: 15px;
@@ -468,28 +455,6 @@ body {
     border-color: #4CAF50;
 }
 
-/* Добавьте в конец style.css */
-.message {
-    max-width: 70%;
-    padding: 8px 12px;
-    margin-bottom: 10px;
-    border-radius: 12px;
-    position: relative;
-    word-wrap: break-word;
-}
-
-.my-message {
-    background-color: #e3f2fd;
-    margin-left: auto;
-    border-bottom-right-radius: 4px;
-}
-
-.their-message {
-    background-color: #f1f1f1;
-    margin-right: auto;
-    border-bottom-left-radius: 4px;
-}
-
 .message-text {
     font-size: 14px;
     line-height: 1.4;
@@ -509,14 +474,21 @@ body {
     font-size: 14px;
 }
 
-/* Добавим в конец файла */
+.message-info {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    font-size: 12px;
+}
+
 .chat-messages {
     display: flex;
-    flex-direction: column-reverse; /* Новые сообщения добавляются сверху */
+    flex-direction: column;
     overflow-y: auto;
     padding: 15px;
     background-color: #fafafa;
     flex-grow: 1;
+    justify-content: flex-end; /* Всегда прижимаем сообщения к низу */
 }
 
 .message {
@@ -530,31 +502,16 @@ body {
 }
 
 .my-message {
-    background-color: #e8f5e9; /* Оливковый цвет для своих сообщений */
+    background-color: #e8f5e9;
     align-self: flex-end;
     border-bottom-right-radius: 5px;
 }
 
 .their-message {
-    background-color: #2e7d32; /* Темно-зеленый для чужих сообщений */
+    background-color: #2e7d32;
     color: white;
     align-self: flex-start;
     border-bottom-left-radius: 5px;
-}
-
-.message-info {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 5px;
-    font-size: 12px;
-}
-
-.my-message .message-info {
-    color: #689f38;
-}
-
-.their-message .message-info {
-    color: #e8f5e9;
 }
 
 @keyframes fadeIn {

@@ -62,6 +62,7 @@
         let contextMenuTarget = null;
         let currentChatUserId = null;
         let lastMessageId = null;
+        let activeChats = {};
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -142,11 +143,10 @@
             // Обработчик клика по карточке пользователя
             document.addEventListener('click', function(e) {
                 let userBar = e.target.closest('.user-bar');
-                if (userBar) {
+                if (userBar && !userBar.classList.contains('current-user')) {
                     const userId = userBar.dataset.userId;
                     openChat(userId);
                     
-                    // Удаляем выделение у всех карточек и добавляем текущей
                     document.querySelectorAll('.user-bar').forEach(el => {
                         el.classList.remove('active-chat');
                     });
@@ -185,6 +185,12 @@
         }
 
         async function openChat(userId) {
+            if (currentChatUserId === userId) {
+                const messagesContainer = document.getElementById('chat-messages');
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                return;
+            }
+
             currentChatUserId = userId;
             const user = await eel.get_user_data(userId)();
             
@@ -193,8 +199,13 @@
                 document.getElementById('chat-container').classList.remove('hidden');
                 document.getElementById('chat-username').textContent = user.nickname;
                 
-                // Загрузка истории сообщений
-                await loadChatHistory(userId);
+                if (activeChats[userId]) {
+                    document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
+                    lastMessageId = activeChats[userId].lastMessageId;
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                } else {
+                    await loadChatHistory(userId);
+                }
             }
         }
 
@@ -205,20 +216,30 @@
                 messagesContainer.innerHTML = '';
 
                 if (messages && messages.length > 0) {
-                    // Сначала добавляем все сообщения в правильном порядке (старые сверху)
+                    // Сортируем сообщения по времени (старые -> новые)
+                    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                    
                     messages.forEach(msg => {
                         const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
                         addMessageToChat(msg, isMyMessage, false);
                     });
                     
-                    // Запоминаем ID последнего сообщения
                     lastMessageId = messages[messages.length - 1].id;
                     
-                    // Прокручиваем вниз к новым сообщениям
+                    activeChats[userId] = {
+                        messages: messagesContainer.innerHTML,
+                        lastMessageId: lastMessageId
+                    };
+                    
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 } else {
                     messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
                     lastMessageId = null;
+                    
+                    activeChats[userId] = {
+                        messages: messagesContainer.innerHTML,
+                        lastMessageId: null
+                    };
                 }
             } catch (error) {
                 console.error('Error loading chat history:', error);
@@ -236,18 +257,25 @@
                 )();
                 
                 if (result.success) {
-                    console.log("Сообщение успешно отправлено, ID:", result.message_id);
                     const message = {
                         id: result.message_id,
                         sender_id: localStorage.getItem('user_id'),
                         receiver_id: currentChatUserId,
                         text: text,
-                        timestamp: result.timestamp, // Уже в локальном времени
+                        timestamp: result.timestamp,
                         read: false
                     };
                     
                     addMessageToChat(message, true, true);
                     lastMessageId = message.id;
+                    
+                    if (activeChats[currentChatUserId]) {
+                        const messagesContainer = document.getElementById('chat-messages');
+                        activeChats[currentChatUserId] = {
+                            messages: messagesContainer.innerHTML,
+                            lastMessageId: lastMessageId
+                        };
+                    }
                 } else {
                     console.error("Ошибка при отправке:", result.message);
                 }
@@ -259,7 +287,6 @@
         function addMessageToChat(message, isMyMessage, isNewMessage = true) {
             const messagesContainer = document.getElementById('chat-messages');
             
-            // Убираем заглушку "Нет сообщений"
             if (messagesContainer.querySelector('.no-messages')) {
                 messagesContainer.innerHTML = '';
             }
@@ -268,29 +295,20 @@
             messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
             messageElement.dataset.id = message.id;
             
-            // Получаем время из сообщения (уже в локальном формате)
-            const timeParts = message.timestamp.split(' ')[1].split(':');
-            const hours = timeParts[0];
-            const minutes = timeParts[1];
-            const timeString = `${hours}:${minutes}`;
+            const date = new Date(message.timestamp);
+            const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dateString = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
             
             messageElement.innerHTML = `
                 <div class="message-text">${message.text}</div>
                 <div class="message-info">
-                    <span>${timeString}</span>
+                    <span>${dateString} ${timeString}</span>
                     ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
                 </div>
             `;
             
-            if (isNewMessage) {
-                messagesContainer.appendChild(messageElement);
-            } else {
-                messagesContainer.insertBefore(messageElement, messagesContainer.firstChild);
-            }
-            
-            if (isNewMessage) {
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
         async function checkForNewMessages() {
@@ -310,6 +328,12 @@
                     });
                     
                     lastMessageId = newMessages[newMessages.length - 1].id;
+                    
+                    const messagesContainer = document.getElementById('chat-messages');
+                    activeChats[currentChatUserId] = {
+                        messages: messagesContainer.innerHTML,
+                        lastMessageId: lastMessageId
+                    };
                 }
             } catch (error) {
                 console.error('Error checking new messages:', error);
@@ -358,7 +382,7 @@
 
         function createUserCard(userData) {
             const card = document.createElement('div');
-            card.className = 'user-bar';
+            card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
             card.dataset.userId = userData.user_id;
             
             const avatar = document.createElement('div');
@@ -438,6 +462,9 @@
                 
                 if (response.success) {
                     await loadFriends();
+                    if (currentChatUserId === contextMenuTarget) {
+                        closeChat();
+                    }
                 }
                 alert(response.message);
             } catch (error) {
