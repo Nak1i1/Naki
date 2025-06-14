@@ -120,6 +120,7 @@ body {
     margin-bottom: 5px;
     cursor: pointer;
     transition: background-color 0.2s;
+    background-color: white; /* Явно задаем белый фон */
 }
 
 .user-bar:hover {
@@ -135,8 +136,15 @@ body {
     cursor: default;
 }
 
+
+
+.user-bar.current-user {
+    cursor: pointer; /* Делаем курсор указателем как у других карточек */
+    /* Убираем background-color: #f5f5f5; чтобы был белый фон как у других */
+}
+
 .user-bar.current-user:hover {
-    background-color: #f5f5f5;
+    background-color: #f0f0f0; /* Такой же эффект при наведении как у других */
 }
 
 .username {

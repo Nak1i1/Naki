@@ -63,6 +63,7 @@
         let currentChatUserId = null;
         let lastMessageId = null;
         let activeChats = {};
+        let readStatusInterval = null;
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -143,7 +144,7 @@
             // Обработчик клика по карточке пользователя
             document.addEventListener('click', function(e) {
                 let userBar = e.target.closest('.user-bar');
-                if (userBar && !userBar.classList.contains('current-user')) {
+                if (userBar) {
                     const userId = userBar.dataset.userId;
                     openChat(userId);
                     
@@ -182,6 +183,12 @@
             });
             currentChatUserId = null;
             lastMessageId = null;
+            
+            // Останавливаем интервал проверки статуса при закрытии чата
+            if (readStatusInterval) {
+                clearInterval(readStatusInterval);
+                readStatusInterval = null;
+            }
         }
 
         async function openChat(userId) {
@@ -189,6 +196,11 @@
                 const messagesContainer = document.getElementById('chat-messages');
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 return;
+            }
+
+            // Останавливаем предыдущий интервал
+            if (readStatusInterval) {
+                clearInterval(readStatusInterval);
             }
 
             currentChatUserId = userId;
@@ -206,6 +218,42 @@
                 } else {
                     await loadChatHistory(userId);
                 }
+                
+                // Запускаем интервал проверки статуса прочтения (каждые 10 секунд)
+                readStatusInterval = setInterval(updateReadStatus, 2000);
+                updateReadStatus(); // Первая проверка сразу при открытии чата
+            }
+        }
+
+        async function updateReadStatus() {
+            if (!currentChatUserId) return;
+            
+            try {
+                // Получаем ID всех наших сообщений в этом чате
+                const myMessages = Array.from(document.querySelectorAll('.my-message'))
+                    .map(el => el.dataset.id)
+                    .filter(id => id);
+                
+                if (myMessages.length === 0) return;
+                
+                // Проверяем статус прочтения на сервере
+                const readStatus = await eel.check_message_read_status(myMessages)();
+                
+                // Обновляем статус в интерфейсе
+                for (const [messageId, isRead] of Object.entries(readStatus)) {
+                    const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+                    if (messageElement) {
+                        const infoElement = messageElement.querySelector('.message-info');
+                        if (infoElement) {
+                            const timeElement = infoElement.querySelector('span');
+                            if (timeElement) {
+                                infoElement.innerHTML = `${timeElement.outerHTML}${isRead ? '✓✓' : '✓'}`;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка при обновлении статуса прочтения:', error);
             }
         }
 
@@ -216,7 +264,6 @@
                 messagesContainer.innerHTML = '';
 
                 if (messages && messages.length > 0) {
-                    // Сортируем сообщения по времени (старые -> новые)
                     messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
                     
                     messages.forEach(msg => {
@@ -250,6 +297,15 @@
             if (!currentChatUserId || !text) return;
             
             try {
+                const history = await eel.get_chat_history(localStorage.getItem('user_id'), currentChatUserId)();
+                
+                if (history.length === 0 && !currentUser.friends.includes(currentChatUserId)) {
+                    const response = await eel.add_friend(localStorage.getItem('user_id'), currentChatUserId)();
+                    if (response.success) {
+                        await loadFriends();
+                    }
+                }
+                
                 const result = await eel.send_message(
                     localStorage.getItem('user_id'),
                     currentChatUserId,
@@ -263,7 +319,7 @@
                         receiver_id: currentChatUserId,
                         text: text,
                         timestamp: result.timestamp,
-                        read: false
+                        read: result.read  // ✅ используем значение, возвращённое сервером
                     };
                     
                     addMessageToChat(message, true, true);
@@ -291,23 +347,37 @@
                 messagesContainer.innerHTML = '';
             }
             
-            const messageElement = document.createElement('div');
-            messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
-            messageElement.dataset.id = message.id;
+            let messageElement = document.querySelector(`.message[data-id="${message.id}"]`);
             
-            const date = new Date(message.timestamp);
-            const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const dateString = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+            if (!messageElement) {
+                messageElement = document.createElement('div');
+                messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
+                messageElement.dataset.id = message.id;
+                
+                const date = new Date(message.timestamp);
+                const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const dateString = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+                
+                messageElement.innerHTML = `
+                    <div class="message-text">${message.text}</div>
+                    <div class="message-info">
+                        <span>${dateString} ${timeString}</span>
+                        ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
+                    </div>
+                `;
+                
+                messagesContainer.appendChild(messageElement);
+            } else if (isMyMessage) {
+                // Обновляем только статус прочтения для существующего сообщения
+                const infoElement = messageElement.querySelector('.message-info');
+                if (infoElement) {
+                    const timeElement = infoElement.querySelector('span');
+                    if (timeElement) {
+                        infoElement.innerHTML = `${timeElement.outerHTML}${message.read ? '✓✓' : '✓'}`;
+                    }
+                }
+            }
             
-            messageElement.innerHTML = `
-                <div class="message-text">${message.text}</div>
-                <div class="message-info">
-                    <span>${dateString} ${timeString}</span>
-                    ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
-                </div>
-            `;
-            
-            messagesContainer.appendChild(messageElement);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
@@ -348,10 +418,10 @@
                 const container = document.getElementById('user-container');
                 container.innerHTML = '';
                 
-                // Добавляем карточку текущего пользователя
+                // Добавляем карточку текущего пользователя (теперь с такими же стилями)
                 const selfCard = createUserCard({
                     user_id: user_id,
-                    nickname: "Вы (" + currentUser.nickname + ")",
+                    nickname: currentUser.nickname,
                     isCurrentUser: true
                 });
                 container.appendChild(selfCard);
@@ -382,7 +452,7 @@
 
         function createUserCard(userData) {
             const card = document.createElement('div');
-            card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
+            card.className = 'user-bar' + (userData.isCurrentUser ? '' : '');
             card.dataset.userId = userData.user_id;
             
             const avatar = document.createElement('div');
@@ -391,7 +461,7 @@
             
             const username = document.createElement('div');
             username.className = 'username';
-            username.textContent = userData.nickname;
+            username.textContent = userData.isCurrentUser ? `Вы (${userData.nickname})` : userData.nickname;
             
             card.appendChild(avatar);
             card.appendChild(username);

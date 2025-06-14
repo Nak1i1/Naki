@@ -195,22 +195,40 @@ def send_message(sender_id, receiver_id, text):
         utc_time = datetime.utcnow()
         local_time_str = get_local_time()
         
+        # Если пользователь отправляет сообщение самому себе, помечаем как прочитанное сразу
+        is_self_message = sender_id == receiver_id
+        
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
             "text": text,
             "timestamp": utc_time,
-            "read": False,
+            "read": is_self_message,  # True если сообщение самому себе
             "local_timestamp": local_time_str
         }
         
         result = messages_collection.insert_one(message_data)
         logger.info(f"Сообщение успешно сохранено в БД, ID: {result.inserted_id}")
         
+        # Если это не сообщение самому себе и это первое сообщение - добавляем в друзья
+        if not is_self_message:
+            existing_messages = messages_collection.count_documents({
+                "$or": [
+                    {"sender_id": ObjectId(sender_id), "receiver_id": ObjectId(receiver_id)},
+                    {"sender_id": ObjectId(receiver_id), "receiver_id": ObjectId(sender_id)}
+                ]
+            })
+            
+            if existing_messages == 0:
+                add_friend_result = add_friend(sender_id, receiver_id)
+                if not add_friend_result["success"]:
+                    logger.warning(f"Не удалось автоматически добавить в друзья: {add_friend_result['message']}")
+        
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": local_time_str
+            "timestamp": local_time_str,
+            "read": is_self_message  # Возвращаем статус прочтения
         }
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {str(e)}")
@@ -226,14 +244,16 @@ def get_chat_history(user1_id, user2_id):
             ]
         }).sort("timestamp", 1)
         
-        messages_collection.update_many(
-            {
-                "sender_id": ObjectId(user2_id),
-                "receiver_id": ObjectId(user1_id),
-                "read": False
-            },
-            {"$set": {"read": True}}
-        )
+        # Помечаем сообщения как прочитанные только если они адресованы нам и это не чат с самим собой
+        if user1_id != user2_id:
+            messages_collection.update_many(
+                {
+                    "sender_id": ObjectId(user2_id),
+                    "receiver_id": ObjectId(user1_id),
+                    "read": False
+                },
+                {"$set": {"read": True}}
+            )
         
         return [{
             "id": str(msg["_id"]),
@@ -274,6 +294,18 @@ def check_new_messages(user_id, last_message_id=None):
     except Exception as e:
         logger.error(f"Ошибка проверки новых сообщений: {e}")
         return []
+
+@eel.expose
+def check_message_read_status(message_ids):
+    try:
+        messages = messages_collection.find({
+            "_id": {"$in": [ObjectId(id) for id in message_ids]}
+        })
+        
+        return {str(msg["_id"]): msg.get("read", False) for msg in messages}
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса прочтения: {e}")
+        return {}
 
 @eel.expose
 def mark_messages_as_read(sender_id, receiver_id):
