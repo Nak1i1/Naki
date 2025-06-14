@@ -29,9 +29,11 @@
             <div class="chat-header">
                 <div class="chat-username" id="chat-username"></div>
             </div>
-            <div class="chat-messages" id="chat-messages"></div>
-            <div class="chat-input-container">
-                <input type="text" class="chat-input" placeholder="Напишите человеку">
+            <div class="chat-messages" id="chat-messages">
+                <div class="no-messages">Нет сообщений</div>
+            </div>
+            <div class="message-input-container">
+                <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
             </div>
         </div>
     </div>
@@ -58,6 +60,7 @@
         let currentUser = null;
         let contextMenu = null;
         let contextMenuTarget = null;
+        let currentChatUserId = null;
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -124,9 +127,37 @@
                 window.location.href = 'login.html';
             });
 
+            // Обработчик нажатия ESC
             document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && !document.getElementById('logout-modal').classList.contains('hidden')) {
-                    closeLogoutModal();
+                if (e.key === 'Escape') {
+                    if (!document.getElementById('logout-modal').classList.contains('hidden')) {
+                        closeLogoutModal();
+                    } else {
+                        closeChat();
+                    }
+                }
+            });
+
+            // Обработчик клика по карточке пользователя (включая свою карточку)
+            document.addEventListener('click', function(e) {
+                let userBar = e.target.closest('.user-bar');
+                if (userBar) {
+                    const userId = userBar.dataset.userId;
+                    openChat(userId);
+                    
+                    // Удаляем выделение у всех карточек и добавляем текущей
+                    document.querySelectorAll('.user-bar').forEach(el => {
+                        el.classList.remove('active-chat');
+                    });
+                    userBar.classList.add('active-chat');
+                }
+            });
+            
+            // Обработчик отправки сообщения
+            document.getElementById('message-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && this.value.trim()) {
+                    sendMessage(this.value.trim());
+                    this.value = '';
                 }
             });
 
@@ -137,6 +168,85 @@
         function closeLogoutModal() {
             document.getElementById('logout-overlay').classList.add('hidden');
             document.getElementById('logout-modal').classList.add('hidden');
+        }
+
+        function closeChat() {
+            document.getElementById('default-content').classList.remove('hidden');
+            document.getElementById('chat-container').classList.add('hidden');
+            document.querySelectorAll('.user-bar').forEach(el => {
+                el.classList.remove('active-chat');
+            });
+            currentChatUserId = null;
+        }
+
+        async function openChat(userId) {
+            currentChatUserId = userId;
+            const user = await eel.get_user_data(userId)();
+            
+            if (user) {
+                document.getElementById('default-content').classList.add('hidden');
+                document.getElementById('chat-container').classList.remove('hidden');
+                document.getElementById('chat-username').textContent = user.nickname;
+                
+                // Загрузка истории сообщений
+                loadChatHistory(userId);
+            }
+        }
+
+        async function loadChatHistory(userId) {
+            try {
+                const messages = await eel.get_chat_history(localStorage.getItem('user_id'), userId)();
+                const messagesContainer = document.getElementById('chat-messages');
+                messagesContainer.innerHTML = '';
+
+                if (messages && messages.length > 0) {
+                    messages.forEach(msg => {
+                        const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
+                        const messageElement = document.createElement('div');
+                        messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
+                        messageElement.innerHTML = `
+                            <div class="message-text">${msg.text}</div>
+                            <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                        `;
+                        messagesContainer.appendChild(messageElement);
+                    });
+                } else {
+                    messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
+                }
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        async function sendMessage(text) {
+            if (!currentChatUserId || !text) return;
+            
+            try {
+                const result = await eel.send_message(
+                    localStorage.getItem('user_id'),
+                    currentChatUserId,
+                    text
+                )();
+                
+                if (result.success) {
+                    const messagesContainer = document.getElementById('chat-messages');
+                    if (messagesContainer.querySelector('.no-messages')) {
+                        messagesContainer.innerHTML = '';
+                    }
+                    
+                    const messageElement = document.createElement('div');
+                    messageElement.className = 'message my-message';
+                    messageElement.innerHTML = `
+                        <div class="message-text">${text}</div>
+                        <div class="message-time">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                    `;
+                    messagesContainer.appendChild(messageElement);
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+            }
         }
 
         async function loadFriends() {
@@ -200,8 +310,6 @@
                     e.preventDefault();
                     showContextMenu(e, userData);
                 });
-            } else {
-                card.classList.add('current-user');
             }
             
             return card;
