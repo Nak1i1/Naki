@@ -183,9 +183,12 @@ body {
 }
 
 .chat-messages {
-    flex-grow: 1;
+    display: flex;
+    flex-direction: column; /* Изменено с column-reverse */
     overflow-y: auto;
-    padding: 10px;
+    padding: 15px;
+    background-color: #fafafa;
+    flex-grow: 1;
 }
 
 .chat-input-container {
@@ -504,4 +507,57 @@ body {
     color: #999;
     padding: 20px;
     font-size: 14px;
+}
+
+/* Добавим в конец файла */
+.chat-messages {
+    display: flex;
+    flex-direction: column-reverse; /* Новые сообщения добавляются сверху */
+    overflow-y: auto;
+    padding: 15px;
+    background-color: #fafafa;
+    flex-grow: 1;
+}
+
+.message {
+    max-width: 70%;
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    border-radius: 15px;
+    position: relative;
+    word-wrap: break-word;
+    animation: fadeIn 0.3s ease;
+}
+
+.my-message {
+    background-color: #e8f5e9; /* Оливковый цвет для своих сообщений */
+    align-self: flex-end;
+    border-bottom-right-radius: 5px;
+}
+
+.their-message {
+    background-color: #2e7d32; /* Темно-зеленый для чужих сообщений */
+    color: white;
+    align-self: flex-start;
+    border-bottom-left-radius: 5px;
+}
+
+.message-info {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    font-size: 12px;
+}
+
+.my-message .message-info {
+    color: #689f38;
+}
+
+.their-message .message-info {
+    color: #e8f5e9;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
