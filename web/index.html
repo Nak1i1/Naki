@@ -28,6 +28,9 @@
         <div class="chat-container hidden" id="chat-container">
             <div class="chat-header">
                 <div class="chat-username" id="chat-username"></div>
+                <div class="chat-header-info">
+                    <div class="chat-status" id="chat-status"></div>
+                </div>
             </div>
             <div class="chat-messages" id="chat-messages">
                 <div class="no-messages">Нет сообщений</div>
@@ -64,6 +67,8 @@
         let lastMessageId = null;
         let activeChats = {};
         let readStatusInterval = null;
+        let statusUpdateInterval = null;
+        let onlineStatusInterval = null;
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -72,6 +77,9 @@
                 window.location.href = 'login.html';
                 return;
             }
+
+            // Запускаем отправку статуса онлайн
+            startOnlineStatusUpdates();
 
             // Загружаем данные пользователя
             try {
@@ -126,6 +134,7 @@
             document.getElementById('logout-cancel-btn').addEventListener('click', closeLogoutModal);
             document.getElementById('logout-overlay').addEventListener('click', closeLogoutModal);
             document.getElementById('logout-confirm-btn').addEventListener('click', function() {
+                eel.update_last_online(localStorage.getItem('user_id'))();
                 localStorage.removeItem('user_id');
                 window.location.href = 'login.html';
             });
@@ -170,6 +179,20 @@
             await loadFriends();
         });
 
+        function startOnlineStatusUpdates() {
+            updateOnlineStatus();
+            onlineStatusInterval = setInterval(updateOnlineStatus, 30000);
+            window.addEventListener('beforeunload', updateOnlineStatus);
+        }
+
+        async function updateOnlineStatus() {
+            try {
+                await eel.update_last_online(localStorage.getItem('user_id'))();
+            } catch (error) {
+                console.error('Ошибка обновления статуса онлайн:', error);
+            }
+        }
+
         function closeLogoutModal() {
             document.getElementById('logout-overlay').classList.add('hidden');
             document.getElementById('logout-modal').classList.add('hidden');
@@ -184,10 +207,13 @@
             currentChatUserId = null;
             lastMessageId = null;
             
-            // Останавливаем интервал проверки статуса при закрытии чата
             if (readStatusInterval) {
                 clearInterval(readStatusInterval);
                 readStatusInterval = null;
+            }
+            if (statusUpdateInterval) {
+                clearInterval(statusUpdateInterval);
+                statusUpdateInterval = null;
             }
         }
 
@@ -198,10 +224,8 @@
                 return;
             }
 
-            // Останавливаем предыдущий интервал
-            if (readStatusInterval) {
-                clearInterval(readStatusInterval);
-            }
+            if (readStatusInterval) clearInterval(readStatusInterval);
+            if (statusUpdateInterval) clearInterval(statusUpdateInterval);
 
             currentChatUserId = userId;
             const user = await eel.get_user_data(userId)();
@@ -209,37 +233,112 @@
             if (user) {
                 document.getElementById('default-content').classList.add('hidden');
                 document.getElementById('chat-container').classList.remove('hidden');
-                document.getElementById('chat-username').textContent = user.nickname;
+                document.getElementById('chat-username').textContent = 
+                    userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
+                
+                await updateUserStatus();
                 
                 if (activeChats[userId]) {
                     document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
                     lastMessageId = activeChats[userId].lastMessageId;
+                    const messagesContainer = document.getElementById('chat-messages');
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 } else {
                     await loadChatHistory(userId);
                 }
                 
-                // Запускаем интервал проверки статуса прочтения (каждые 10 секунд)
                 readStatusInterval = setInterval(updateReadStatus, 2000);
-                updateReadStatus(); // Первая проверка сразу при открытии чата
+                updateReadStatus();
+                
+                statusUpdateInterval = setInterval(updateUserStatus, 5000);
             }
+        }
+
+        async function updateUserStatus() {
+            if (!currentChatUserId) return;
+
+            try {
+                const user = await eel.get_user_data(currentChatUserId)();
+                if (!user) return;
+
+                const statusElement = document.getElementById('chat-status');
+                const now = new Date();
+                const lastOnline = new Date(user.last_online + ' UTC');
+
+                const diffMinutes = Math.floor((now - lastOnline) / (1000 * 60));
+
+                if (currentChatUserId === localStorage.getItem('user_id')) {
+                    statusElement.textContent = '';
+                    statusElement.classList.remove('online');
+                } else if (diffMinutes < 5) {
+                    statusElement.textContent = 'В сети';
+                    statusElement.classList.add('online');
+                } else {
+                    statusElement.textContent = `Был(а) в сети ${formatTimeAgo(lastOnline)}`;
+                    statusElement.classList.remove('online');
+                }
+
+                updateOnlineStatusInContacts();
+            } catch (error) {
+                console.error('Ошибка при обновлении статуса:', error);
+            }
+        }
+
+        function updateOnlineStatusInContacts() {
+            const userBars = document.querySelectorAll('.user-bar:not(.current-user)');
+            userBars.forEach(async bar => {
+                const userId = bar.dataset.userId;
+                try {
+                    const user = await eel.get_user_data(userId)();
+                    if (user) {
+                        const now = new Date();
+                        const lastOnline = new Date(user.last_online + ' UTC');
+                        const diffMinutes = Math.floor((now - lastOnline) / (1000 * 60));
+
+                        const avatar = bar.querySelector('.avatar-medium');
+                        if (diffMinutes < 5) {
+                            avatar.classList.add('online');
+                        } else {
+                            avatar.classList.remove('online');
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка при обновлении статуса контакта:', error);
+                }
+            });
+        }
+
+        function formatTimeAgo(date) {
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000);
+            
+            if (diff < 60) return 'только что';
+            if (diff < 3600) return `${Math.floor(diff / 60)} мин. назад`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)} ч. назад`;
+            
+            const days = Math.floor(diff / 86400);
+            if (days === 1) return 'вчера';
+            if (days < 7) return `${days} дн. назад`;
+            
+            return date.toLocaleDateString('ru-RU', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
         }
 
         async function updateReadStatus() {
             if (!currentChatUserId) return;
             
             try {
-                // Получаем ID всех наших сообщений в этом чате
                 const myMessages = Array.from(document.querySelectorAll('.my-message'))
                     .map(el => el.dataset.id)
                     .filter(id => id);
                 
                 if (myMessages.length === 0) return;
                 
-                // Проверяем статус прочтения на сервере
                 const readStatus = await eel.check_message_read_status(myMessages)();
                 
-                // Обновляем статус в интерфейсе
                 for (const [messageId, isRead] of Object.entries(readStatus)) {
                     const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
                     if (messageElement) {
@@ -297,15 +396,6 @@
             if (!currentChatUserId || !text) return;
             
             try {
-                const history = await eel.get_chat_history(localStorage.getItem('user_id'), currentChatUserId)();
-                
-                if (history.length === 0 && !currentUser.friends.includes(currentChatUserId)) {
-                    const response = await eel.add_friend(localStorage.getItem('user_id'), currentChatUserId)();
-                    if (response.success) {
-                        await loadFriends();
-                    }
-                }
-                
                 const result = await eel.send_message(
                     localStorage.getItem('user_id'),
                     currentChatUserId,
@@ -319,7 +409,7 @@
                         receiver_id: currentChatUserId,
                         text: text,
                         timestamp: result.timestamp,
-                        read: result.read  // ✅ используем значение, возвращённое сервером
+                        read: result.read
                     };
                     
                     addMessageToChat(message, true, true);
@@ -368,7 +458,6 @@
                 
                 messagesContainer.appendChild(messageElement);
             } else if (isMyMessage) {
-                // Обновляем только статус прочтения для существующего сообщения
                 const infoElement = messageElement.querySelector('.message-info');
                 if (infoElement) {
                     const timeElement = infoElement.querySelector('span');
@@ -404,6 +493,8 @@
                         messages: messagesContainer.innerHTML,
                         lastMessageId: lastMessageId
                     };
+                    
+                    updateOnlineStatusInContacts();
                 }
             } catch (error) {
                 console.error('Error checking new messages:', error);
@@ -418,7 +509,7 @@
                 const container = document.getElementById('user-container');
                 container.innerHTML = '';
                 
-                // Добавляем карточку текущего пользователя (теперь с такими же стилями)
+                // Добавляем карточку текущего пользователя
                 const selfCard = createUserCard({
                     user_id: user_id,
                     nickname: currentUser.nickname,
@@ -439,6 +530,8 @@
                             container.appendChild(friendCard);
                         }
                     }
+                    
+                    updateOnlineStatusInContacts();
                 } else {
                     const noFriends = document.createElement('div');
                     noFriends.className = 'no-friends';
@@ -452,7 +545,7 @@
 
         function createUserCard(userData) {
             const card = document.createElement('div');
-            card.className = 'user-bar' + (userData.isCurrentUser ? '' : '');
+            card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
             card.dataset.userId = userData.user_id;
             
             const avatar = document.createElement('div');
@@ -566,6 +659,8 @@
                 });
                 container.appendChild(userCard);
             }
+            
+            updateOnlineStatusInContacts();
         }
     </script>
 </body>

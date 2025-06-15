@@ -526,3 +526,49 @@ body {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+/* Добавьте в конец style.css */
+.chat-header-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-left: auto;
+}
+
+.chat-status {
+    font-size: 12px;
+    color: #ffffff;
+    font-weight: normal;
+}
+
+/* Добавьте в конец style.css */
+.user-status {
+    font-size: 12px;
+    color: #666;
+    margin-top: 2px;
+}
+
+.user-status.online {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+#chat-status {
+    font-size: 12px;
+    color: #666;
+}
+
+#chat-status.online {
+    color: #ffffff;
+}
+
+.avatar-small.online, 
+.avatar-medium.online, 
+.avatar-large.online {
+    border: 2px solid #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+
+/* Для сообщений в чате */
+.their-message .message-info {
+    color: rgba(255, 255, 255, 0.7);
+}

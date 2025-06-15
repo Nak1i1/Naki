@@ -83,6 +83,17 @@ def login_user(email, password):
     except Exception as e:
         logger.error(f"Ошибка входа: {e}")
         return {"success": False, "message": "Ошибка при входе в систему"}
+@eel.expose
+def update_last_online(user_id):
+    try:
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"last_online": datetime.utcnow()}}
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка обновления времени последней активности: {e}")
+        return False
 
 @eel.expose
 def get_user_data(user_id):
