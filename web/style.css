@@ -572,3 +572,38 @@ body {
 .their-message .message-info {
     color: rgba(255, 255, 255, 0.7);
 }
+
+/* Добавьте в конец файла */
+.user-content-wrapper {
+    flex-grow: 1;
+    margin-left: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0; /* Это важно для корректного обрезания текста */
+}
+
+.username {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.last-message {
+    font-size: 12px;
+    color: #777;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+    padding-top: 2px;
+    border-top: 1px solid #eee;
+    align-self: flex-end;
+    width: 100%;
+    text-align: right;
+}
+
+.you-indicator {
+    color: #4CAF50;
+    font-weight: bold;
+}

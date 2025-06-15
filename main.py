@@ -333,7 +333,26 @@ def mark_messages_as_read(sender_id, receiver_id):
     except Exception as e:
         logger.error(f"Ошибка пометки сообщений как прочитанных: {e}")
         return {"success": False}
-
+@eel.expose
+def get_last_message(user1_id, user2_id):
+    try:
+        message = messages_collection.find_one({
+            "$or": [
+                {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
+                {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
+            ]
+        }, sort=[("timestamp", -1)])
+        
+        if message:
+            return {
+                "text": message["text"],
+                "sender_id": str(message["sender_id"]),
+                "timestamp": message.get("local_timestamp", message["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S"))
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error getting last message: {e}")
+        return None
 # Запуск приложения
 if __name__ == '__main__':
     try:

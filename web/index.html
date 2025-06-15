@@ -522,10 +522,13 @@
                     for (const friendId of currentUser.friends) {
                         const friend = await eel.get_user_data(friendId)();
                         if (friend) {
+                            // Получаем последнее сообщение
+                            const lastMessage = await eel.get_last_message(user_id, friendId)();
                             const friendCard = createUserCard({
                                 user_id: friendId,
                                 nickname: friend.nickname,
-                                isFriend: true
+                                isFriend: true,
+                                lastMessage: lastMessage
                             });
                             container.appendChild(friendCard);
                         }
@@ -552,12 +555,36 @@
             avatar.className = 'avatar-medium';
             avatar.style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
             
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = 'user-content-wrapper';
+            
             const username = document.createElement('div');
             username.className = 'username';
             username.textContent = userData.isCurrentUser ? `Вы (${userData.nickname})` : userData.nickname;
             
+            contentWrapper.appendChild(username);
+            
+            // Добавляем последнее сообщение, если оно есть
+            if (userData.lastMessage && !userData.isCurrentUser) {
+                const lastMsgDiv = document.createElement('div');
+                lastMsgDiv.className = 'last-message';
+                
+                let messageText = userData.lastMessage.text;
+                if (messageText.length > 25) {
+                    messageText = messageText.substring(0, 22) + '...';
+                }
+                
+                if (userData.lastMessage.sender_id === localStorage.getItem('user_id')) {
+                    lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${messageText}`;
+                } else {
+                    lastMsgDiv.textContent = messageText;
+                }
+                
+                contentWrapper.appendChild(lastMsgDiv);
+            }
+            
             card.appendChild(avatar);
-            card.appendChild(username);
+            card.appendChild(contentWrapper);
             
             if (!userData.isCurrentUser) {
                 card.addEventListener('contextmenu', function(e) {
