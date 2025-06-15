@@ -132,7 +132,7 @@ body {
 }
 
 .user-bar.current-user {
-    background-color: #f5f5f5;
+    background-color: white;
     cursor: default;
 }
 
@@ -596,7 +596,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     margin-top: 2px;
-    padding-top: 2px;
+
     border-top: 1px solid #eee;
     align-self: flex-end;
     width: 100%;

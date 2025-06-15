@@ -239,7 +239,8 @@ def send_message(sender_id, receiver_id, text):
             "success": True,
             "message_id": str(result.inserted_id),
             "timestamp": local_time_str,
-            "read": is_self_message  # Возвращаем статус прочтения
+            "read": is_self_message,
+            "text": text  # Добавляем текст сообщения в ответ
         }
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {str(e)}")

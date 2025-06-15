@@ -422,11 +422,53 @@
                             lastMessageId: lastMessageId
                         };
                     }
+                    
+                    // Обновляем последнее сообщение на карточке пользователя
+                    updateLastMessageOnUserCard(currentChatUserId, text, true);
                 } else {
                     console.error("Ошибка при отправке:", result.message);
                 }
             } catch (error) {
                 console.error('Error sending message:', error);
+            }
+        }
+
+        function updateLastMessageOnUserCard(userId, messageText, isMyMessage) {
+            const userCard = document.querySelector(`.user-bar[data-user-id="${userId}"]`);
+            if (!userCard) return;
+            
+            const lastMsgDiv = userCard.querySelector('.last-message');
+            let displayText = messageText;
+            
+            if (displayText.length > 25) {
+                displayText = displayText.substring(0, 22) + '...';
+            }
+            
+            if (isMyMessage) {
+                if (lastMsgDiv) {
+                    lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+                } else {
+                    // Если элемента еще нет, создаем его
+                    const contentWrapper = userCard.querySelector('.user-content-wrapper');
+                    if (contentWrapper) {
+                        const newLastMsgDiv = document.createElement('div');
+                        newLastMsgDiv.className = 'last-message';
+                        newLastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+                        contentWrapper.appendChild(newLastMsgDiv);
+                    }
+                }
+            } else {
+                if (lastMsgDiv) {
+                    lastMsgDiv.textContent = displayText;
+                } else {
+                    const contentWrapper = userCard.querySelector('.user-content-wrapper');
+                    if (contentWrapper) {
+                        const newLastMsgDiv = document.createElement('div');
+                        newLastMsgDiv.className = 'last-message';
+                        newLastMsgDiv.textContent = displayText;
+                        contentWrapper.appendChild(newLastMsgDiv);
+                    }
+                }
             }
         }
 
@@ -483,6 +525,8 @@
                     newMessages.forEach(msg => {
                         if (msg.sender_id === currentChatUserId) {
                             addMessageToChat(msg, false, true);
+                            // Обновляем последнее сообщение на карточке
+                            updateLastMessageOnUserCard(currentChatUserId, msg.text, false);
                         }
                     });
                     
@@ -679,10 +723,13 @@
             
             for (const user of users) {
                 const isFriend = currentUser.friends.includes(user.user_id);
+                // Получаем последнее сообщение для результатов поиска
+                const lastMessage = await eel.get_last_message(localStorage.getItem('user_id'), user.user_id)();
                 const userCard = createUserCard({
                     user_id: user.user_id,
                     nickname: user.nickname,
-                    isFriend: isFriend
+                    isFriend: isFriend,
+                    lastMessage: lastMessage
                 });
                 container.appendChild(userCard);
             }
