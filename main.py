@@ -256,7 +256,6 @@ def get_chat_history(user1_id, user2_id):
             ]
         }).sort("timestamp", 1)
         
-        # Помечаем сообщения как прочитанные только если они адресованы нам и это не чат с самим собой
         if user1_id != user2_id:
             messages_collection.update_many(
                 {
@@ -267,17 +266,27 @@ def get_chat_history(user1_id, user2_id):
                 {"$set": {"read": True}}
             )
         
-        return [{
-            "id": str(msg["_id"]),
-            "sender_id": str(msg["sender_id"]),
-            "receiver_id": str(msg["receiver_id"]),
-            "text": msg["text"],
-            "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
-            "read": msg.get("read", False)
-        } for msg in messages]
+        result = []
+        for msg in messages:
+            m = {
+                "id": str(msg["_id"]),
+                "sender_id": str(msg["sender_id"]),
+                "receiver_id": str(msg["receiver_id"]),
+                "text": msg["text"],
+                "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
+                "read": msg.get("read", False)
+            }
+            if msg.get("is_voice"):
+                m["isVoiceMessage"] = True
+                m["voiceData"] = msg.get("voice_data")
+                m["duration"] = msg.get("duration", 0)
+                m["visualization"] = msg.get("visualization", [])
+            result.append(m)
+        return result
     except Exception as e:
         logger.error(f"Ошибка получения истории чата: {e}")
         return []
+
 
 @eel.expose
 def check_new_messages(user_id, last_message_id=None):
@@ -295,14 +304,23 @@ def check_new_messages(user_id, last_message_id=None):
                 {"$set": {"read": True}}
             )
         
-        return [{
-            "id": str(msg["_id"]),
-            "sender_id": str(msg["sender_id"]),
-            "receiver_id": str(msg["receiver_id"]),
-            "text": msg["text"],
-            "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
-            "read": True
-        } for msg in messages]
+        result = []
+        for msg in messages:
+            m = {
+                "id": str(msg["_id"]),
+                "sender_id": str(msg["sender_id"]),
+                "receiver_id": str(msg["receiver_id"]),
+                "text": msg["text"],
+                "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
+                "read": True
+            }
+            if msg.get("is_voice"):
+                m["isVoiceMessage"] = True
+                m["voiceData"] = msg.get("voice_data")
+                m["duration"] = msg.get("duration", 0)
+                m["visualization"] = msg.get("visualization", [])
+            result.append(m)
+        return result
     except Exception as e:
         logger.error(f"Ошибка проверки новых сообщений: {e}")
         return []
@@ -318,6 +336,60 @@ def check_message_read_status(message_ids):
     except Exception as e:
         logger.error(f"Ошибка проверки статуса прочтения: {e}")
         return {}
+
+@eel.expose
+def send_voice_message(sender_id, receiver_id, voice_data, duration, visualization_data=None):
+    try:
+        sender = users_collection.find_one({"_id": ObjectId(sender_id)})
+        receiver = users_collection.find_one({"_id": ObjectId(receiver_id)})
+        
+        if not sender or not receiver:
+            return {"success": False, "message": "Пользователь не найден"}
+        
+        utc_time = datetime.utcnow()
+        local_time_str = get_local_time()
+        
+        is_self_message = sender_id == receiver_id
+        
+        message_data = {
+            "sender_id": ObjectId(sender_id),
+            "receiver_id": ObjectId(receiver_id),
+            "text": "[Голосовое сообщение]",
+            "timestamp": utc_time,
+            "read": is_self_message,
+            "local_timestamp": local_time_str,
+            "is_voice": True,
+            "voice_data": voice_data,
+            "duration": float(duration),
+            "visualization": visualization_data  # Добавляем данные визуализации
+        }
+        
+        result = messages_collection.insert_one(message_data)
+        
+        return {
+            "success": True,
+            "message_id": str(result.inserted_id),
+            "timestamp": local_time_str,
+            "read": is_self_message
+        }
+    except Exception as e:
+        logger.error(f"Ошибка отправки голосового сообщения: {e}")
+        return {"success": False, "message": "Ошибка при отправке голосового сообщения"}
+    
+@eel.expose
+def get_voice_message(message_id):
+    try:
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if message and message.get("is_voice"):
+            return {
+                "success": True,
+                "voice_data": message["voice_data"],
+                "duration": message["duration"]
+            }
+        return {"success": False, "message": "Голосовое сообщение не найдено"}
+    except Exception as e:
+        logger.error(f"Ошибка получения голосового сообщения: {e}")
+        return {"success": False, "message": "Ошибка при получении голосового сообщения"}
 
 @eel.expose
 def mark_messages_as_read(sender_id, receiver_id):
