@@ -675,12 +675,13 @@ body {
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background-color: #2e7d32;
+    background-color: #4CAF50;
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.2s;
 }
 
 .play-voice-btn img {
@@ -731,4 +732,179 @@ body {
 
 .their-message .voice-time {
     color: rgba(255, 255, 255, 0.7);
+}
+
+/* Добавьте в конец style.css */
+.voice-message {
+    position: relative;
+    padding-left: 50px;
+    width: 100%;
+    margin: 5px 0;
+}
+
+.play-voice-btn {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border-radius: 0;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.play-voice-btn:hover {
+    background-color: #3d8b40;
+}
+
+.play-voice-btn img {
+    width: 20px;
+    height: 20px;
+}
+
+.voice-visualization {
+    display: flex;
+    align-items: flex-end;
+    height: 30px;
+    gap: 2px;
+    margin: 0 10px 5px 0;
+}
+
+.voice-bar {
+    flex: 1;
+    min-width: 2px;
+    background-color: #4CAF50;
+    border-radius: 2px;
+    transition: height 0.3s ease;
+}
+
+.voice-time {
+    font-size: 12px;
+    color: #666;
+    text-align: right;
+    margin-right: 10px;
+}
+
+/* Стили для своих сообщений */
+.my-message .play-voice-btn {
+    background-color: #e8f5e9;
+}
+
+.my-message .play-voice-btn img {
+    filter: none;
+    transform: none;
+    width: 15px;
+    height: 15px;
+}
+
+.their-message .voice-visualization {
+    margin-left: 10px;
+}
+
+.voice-message {
+    position: relative;
+    padding-left: 40px;
+    width: 100%;
+    margin: 5px 0;
+}
+
+.my-message .voice-bar {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.my-message .voice-time {
+    color: #666;
+}
+
+/* Стили для чужих сообщений */
+.their-message .play-voice-btn {
+    background-color: #2e7d32;
+}
+.their-message .play-voice-btn {
+    background-color: transparent !important;
+    border: none;
+    width: 20px;
+    height: 20px;
+    left: 15px;
+}
+.their-message .play-voice-btn img {
+    transform: rotate(180deg);
+    width: 20px;
+    height: 20px;
+    filter: none !important;
+}
+
+
+.their-message .voice-bar {
+    background-color: rgba(255, 255, 255, 0.7);
+}
+
+.their-message .voice-time {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Добавьте в конец style.css */
+.scroll-down-button {
+    position: absolute;
+    right: 30px;
+    bottom: 80px;
+    width: 40px;
+    height: 40px;
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 20px;
+    z-index: 10;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: all 0.3s ease;
+}
+
+.scroll-down-button:hover {
+    background-color: #3d8b40;
+    transform: scale(1.1);
+}
+
+.scroll-down-button.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.5);
+}
+
+/* Добавьте в конец style.css */
+.chat-messages {
+    scrollbar-width: thin;
+    scrollbar-color: #4CAF50 #f5f5f5;
+}
+
+.chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+    background: #f5f5f5;
+    border-radius: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+    background-color: #4CAF50;
+    border-radius: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+    background-color: #3d8b40;
+}
+
+/* Для плавной прокрутки */
+.chat-messages {
+    scroll-behavior: smooth;
 }

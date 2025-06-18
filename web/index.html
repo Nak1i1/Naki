@@ -85,6 +85,7 @@
         let visualizationInterval = null;
         let currentPlayingAudio = null;
         let voiceMessagePlaying = false;
+        let currentPlayingVoiceElement = null;
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -93,6 +94,14 @@
                 window.location.href = 'login.html';
                 return;
             }
+
+            // Добавляем обработчик перед выгрузкой страницы
+            window.addEventListener('beforeunload', function() {
+                stopVoiceMessage();
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+            });
 
             // Запускаем отправку статуса онлайн
             startOnlineStatusUpdates();
@@ -227,6 +236,12 @@
             document.querySelectorAll('.user-bar').forEach(el => {
                 el.classList.remove('active-chat');
             });
+            
+            // Полностью сбрасываем состояние голосовых сообщений
+            stopVoiceMessage();
+            currentPlayingAudio = null;
+            voiceMessagePlaying = false;
+            currentPlayingVoiceElement = null;
             currentChatUserId = null;
             lastMessageId = null;
             
@@ -241,6 +256,12 @@
         }
 
         async function openChat(userId) {
+            // Полностью останавливаем текущее воспроизведение
+            stopVoiceMessage();
+            currentPlayingAudio = null;
+            voiceMessagePlaying = false;
+            currentPlayingVoiceElement = null;
+            
             if (currentChatUserId === userId) {
                 const messagesContainer = document.getElementById('chat-messages');
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -266,6 +287,9 @@
                     lastMessageId = activeChats[userId].lastMessageId;
                     const messagesContainer = document.getElementById('chat-messages');
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    
+                    // Переустанавливаем обработчики для голосовых сообщений
+                    setupVoiceMessageHandlers();
                 } else {
                     await loadChatHistory(userId);
                 }
@@ -275,6 +299,28 @@
                 
                 statusUpdateInterval = setInterval(updateUserStatus, 5000);
             }
+        }
+
+        function setupVoiceMessageHandlers() {
+            const voiceMessages = document.querySelectorAll('.voice-message');
+            voiceMessages.forEach((voiceMessage) => {
+                const playBtn = voiceMessage.querySelector('.play-voice-btn');
+                playBtn.addEventListener('click', async () => {
+                    const isPlaying = voiceMessage.classList.contains('playing');
+                    
+                    if (isPlaying) {
+                        stopVoiceMessage(voiceMessage);
+                    } else {
+                        const messageId = voiceMessage.closest('.message').dataset.id;
+                        const response = await eel.get_voice_message(messageId)();
+                        if (response.success) {
+                            playVoiceMessage(response.voice_data, voiceMessage, response.duration);
+                        } else {
+                            alert('Не удалось загрузить голосовое сообщение');
+                        }
+                    }
+                });
+            });
         }
 
         async function updateUserStatus() {
@@ -401,6 +447,9 @@
                     };
                     
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    
+                    // Устанавливаем обработчики для голосовых сообщений
+                    setupVoiceMessageHandlers();
                 } else {
                     messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
                     lastMessageId = null;
@@ -567,6 +616,9 @@
                     };
                     
                     updateOnlineStatusInContacts();
+                    
+                    // Устанавливаем обработчики для новых голосовых сообщений
+                    setupVoiceMessageHandlers();
                 }
             } catch (error) {
                 console.error('Error checking new messages:', error);
@@ -916,7 +968,7 @@
             visualization.className = 'voice-visualization';
             
             // Создаем визуализацию на основе сохраненных данных
-            const visualizationData = message.visualization || Array(20).fill(0.1);
+            const visualizationData = message.visualization || Array(20).fill(0.3);
             for (let i = 0; i < 20; i++) {
                 const bar = document.createElement('div');
                 bar.className = 'voice-bar';
@@ -935,60 +987,66 @@
             
             const time = document.createElement('div');
             time.className = 'voice-time';
+            time.dataset.duration = message.duration;
             time.textContent = `${message.duration.toFixed(1)} сек.`;
             
             voiceMessage.appendChild(playBtn);
             voiceMessage.appendChild(visualization);
             voiceMessage.appendChild(time);
             
-            playBtn.addEventListener('click', async () => {
-                if (voiceMessagePlaying) {
-                    stopVoiceMessage(voiceMessage);
-                } else {
-                    if (message.voiceData) {
-                        playVoiceMessage(message.voiceData, voiceMessage, message.duration);
-                    } else {
-                        const response = await eel.get_voice_message(message.id)();
-                        if (response.success) {
-                            playVoiceMessage(response.voice_data, voiceMessage, response.duration);
-                        } else {
-                            alert('Не удалось загрузить голосовое сообщение');
-                        }
-                    }
-                }
-            });
-            
             return voiceMessage;
         }
 
         function playVoiceMessage(audioData, voiceMessageElement, duration) {
+            // Останавливаем текущее воспроизведение, если есть
             if (currentPlayingAudio) {
                 currentPlayingAudio.pause();
                 currentPlayingAudio = null;
+                
+                if (currentPlayingVoiceElement) {
+                    currentPlayingVoiceElement.classList.remove('playing');
+                    const prevPlayBtn = currentPlayingVoiceElement.querySelector('.play-voice-btn img');
+                    prevPlayBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
+                    const prevTimeElement = currentPlayingVoiceElement.querySelector('.voice-time');
+                    prevTimeElement.textContent = `${parseFloat(prevTimeElement.dataset.duration).toFixed(1)} сек.`;
+                }
             }
+
+            // Устанавливаем класс playing для текущего элемента
+            voiceMessageElement.classList.add('playing');
+            voiceMessagePlaying = true;
+            currentPlayingVoiceElement = voiceMessageElement;
             
             const audio = new Audio(`data:audio/wav;base64,${audioData}`);
             currentPlayingAudio = audio;
-            voiceMessagePlaying = true;
             
             const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
             playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
             
             const timeElement = voiceMessageElement.querySelector('.voice-time');
+            timeElement.dataset.duration = duration;
             const startTime = Date.now();
             
+            // Функция обновления времени
             const updateTime = () => {
+                if (!voiceMessagePlaying) return;
+                
                 const elapsed = (Date.now() - startTime) / 1000;
                 timeElement.textContent = `${elapsed.toFixed(1)} / ${duration.toFixed(1)} сек.`;
                 
-                if (elapsed < duration) {
+                if (elapsed < duration && voiceMessagePlaying) {
                     requestAnimationFrame(updateTime);
                 } else {
                     stopVoiceMessage(voiceMessageElement);
                 }
             };
-            
+                
+            // Обработчики событий аудио
             audio.addEventListener('ended', () => {
+                stopVoiceMessage(voiceMessageElement);
+            });
+            
+            audio.addEventListener('pause', () => {
                 stopVoiceMessage(voiceMessageElement);
             });
             
@@ -997,11 +1055,20 @@
                 alert('Ошибка воспроизведения голосового сообщения');
             });
             
-            audio.play();
-            updateTime();
+            // Запускаем воспроизведение
+            audio.play().then(() => {
+                updateTime();
+            }).catch(error => {
+                console.error('Ошибка воспроизведения:', error);
+                stopVoiceMessage(voiceMessageElement);
+            });
         }
 
-        function stopVoiceMessage(voiceMessageElement) {
+        function stopVoiceMessage(voiceMessageElement = null) {
+            if (!voiceMessageElement) {
+                voiceMessageElement = currentPlayingVoiceElement;
+            }
+            
             if (currentPlayingAudio) {
                 currentPlayingAudio.pause();
                 currentPlayingAudio = null;
@@ -1009,12 +1076,19 @@
             
             voiceMessagePlaying = false;
             
-            const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
-            playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
-            
-            const timeElement = voiceMessageElement.querySelector('.voice-time');
-            const duration = parseFloat(timeElement.textContent.split(' / ')[1]) || 0;
-            timeElement.textContent = `${duration.toFixed(1)} сек.`;
+            if (voiceMessageElement) {
+                voiceMessageElement.classList.remove('playing');
+                const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
+                playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
+                
+                const timeElement = voiceMessageElement.querySelector('.voice-time');
+                const duration = parseFloat(timeElement.dataset.duration) || 0;
+                timeElement.textContent = `${duration.toFixed(1)} сек.`;
+                
+                if (voiceMessageElement === currentPlayingVoiceElement) {
+                    currentPlayingVoiceElement = null;
+                }
+            }
         }
     </script>
 </body>

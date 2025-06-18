@@ -62,6 +62,73 @@ def register_user(nickname, email, password):
     except Exception as e:
         logger.error(f"Ошибка регистрации: {e}")
         return {"success": False, "message": "Ошибка при регистрации"}
+    
+@eel.expose
+def edit_message(message_id, new_text):
+    try:
+        result = messages_collection.update_one(
+            {"_id": ObjectId(message_id)},
+            {"$set": {"text": new_text}}
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Сообщение {message_id} успешно отредактировано")
+            return {"success": True, "message": "Сообщение отредактировано"}
+        
+        return {"success": False, "message": "Сообщение не найдено или текст не изменился"}
+    except Exception as e:
+        logger.error(f"Ошибка редактирования сообщения: {e}")
+        return {"success": False, "message": "Ошибка при редактировании сообщения"}
+@eel.expose
+def get_friends(user_id):
+    try:
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if user:
+            friends = user.get("friends", [])
+            friend_data = []
+            for friend_id in friends:
+                friend = users_collection.find_one({"_id": friend_id})
+                if friend:
+                    friend_data.append({
+                        "user_id": str(friend["_id"]),
+                        "nickname": friend["nickname"],
+                        "email": friend["email"]
+                    })
+            return friend_data
+        return []
+    except Exception as e:
+        logger.error(f"Ошибка получения списка друзей: {e}")
+        return []
+
+@eel.expose
+def get_all_users():
+    try:
+        users = users_collection.find()
+        user_data = []
+        for user in users:
+            user_data.append({
+                "user_id": str(user["_id"]),
+                "nickname": user["nickname"],
+                "email": user["email"]
+            })
+        return user_data
+    except Exception as e:
+        logger.error(f"Ошибка получения всех пользователей: {e}")
+        return []
+
+@eel.expose
+def delete_message(message_id):
+    try:
+        result = messages_collection.delete_one({"_id": ObjectId(message_id)})
+        
+        if result.deleted_count > 0:
+            logger.info(f"Сообщение {message_id} успешно удалено")
+            return {"success": True, "message": "Сообщение удалено"}
+        
+        return {"success": False, "message": "Сообщение не найдено"}
+    except Exception as e:
+        logger.error(f"Ошибка удаления сообщения: {e}")
+        return {"success": False, "message": "Ошибка при удалении сообщения"}
 
 @eel.expose
 def login_user(email, password):
