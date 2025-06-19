@@ -166,14 +166,15 @@
 
             // Обработчик нажатия ESC
             document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    if (!document.getElementById('logout-modal').classList.contains('hidden')) {
-                        closeLogoutModal();
-                    } else {
-                        closeChat();
-                    }
-                }
-            });
+    if (e.key === 'Escape') {
+        if (!document.getElementById('logout-modal').classList.contains('hidden')) {
+            closeLogoutModal();
+        } else {
+            closeChat();
+            // После закрытия чата currentChatUserId остается установленным
+        }
+    }
+});
 
             // Обработчик клика по карточке пользователя
             document.addEventListener('click', function(e) {
@@ -231,75 +232,86 @@
         }
 
         function closeChat() {
-            document.getElementById('default-content').classList.remove('hidden');
-            document.getElementById('chat-container').classList.add('hidden');
-            document.querySelectorAll('.user-bar').forEach(el => {
-                el.classList.remove('active-chat');
-            });
+    document.getElementById('default-content').classList.remove('hidden');
+    document.getElementById('chat-container').classList.add('hidden');
+    document.querySelectorAll('.user-bar').forEach(el => {
+        el.classList.remove('active-chat');
+    });
+    
+    stopVoiceMessage();
+    currentPlayingAudio = null;
+    voiceMessagePlaying = false;
+    currentPlayingVoiceElement = null;
+    
+    // Не сбрасываем currentChatUserId, чтобы можно было открыть тот же чат снова
+    // currentChatUserId = null;
+    
+    lastMessageId = null;
+    
+    if (readStatusInterval) {
+        clearInterval(readStatusInterval);
+        readStatusInterval = null;
+    }
+    if (statusUpdateInterval) {
+        clearInterval(statusUpdateInterval);
+        statusUpdateInterval = null;
+    }
+}
+
+async function openChat(userId) {
+    // Если чат уже открыт, просто прокручиваем сообщения
+    if (currentChatUserId === userId) {
+        const messagesContainer = document.getElementById('chat-messages');
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        return;
+    }
+
+    // Полностью останавливаем текущее воспроизведение
+    stopVoiceMessage();
+    currentPlayingAudio = null;
+    voiceMessagePlaying = false;
+    currentPlayingVoiceElement = null;
+    
+    if (readStatusInterval) clearInterval(readStatusInterval);
+    if (statusUpdateInterval) clearInterval(statusUpdateInterval);
+
+    currentChatUserId = userId;
+    const user = await eel.get_user_data(userId)();
+    
+    if (user) {
+        document.getElementById('default-content').classList.add('hidden');
+        document.getElementById('chat-container').classList.remove('hidden');
+        document.getElementById('chat-username').textContent = 
+            userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
+            await updateUserStatus();
+        
+        if (activeChats[userId]) {
+            document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
+            lastMessageId = activeChats[userId].lastMessageId;
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
             
-            // Полностью сбрасываем состояние голосовых сообщений
-            stopVoiceMessage();
-            currentPlayingAudio = null;
-            voiceMessagePlaying = false;
-            currentPlayingVoiceElement = null;
-            currentChatUserId = null;
-            lastMessageId = null;
-            
-            if (readStatusInterval) {
-                clearInterval(readStatusInterval);
-                readStatusInterval = null;
-            }
-            if (statusUpdateInterval) {
-                clearInterval(statusUpdateInterval);
-                statusUpdateInterval = null;
-            }
+            // Переустанавливаем обработчики для голосовых сообщений
+            setupVoiceMessageHandlers();
+        } else {
+            await loadChatHistory(userId);
         }
-
-        async function openChat(userId) {
-            // Полностью останавливаем текущее воспроизведение
-            stopVoiceMessage();
-            currentPlayingAudio = null;
-            voiceMessagePlaying = false;
-            currentPlayingVoiceElement = null;
-            
-            if (currentChatUserId === userId) {
-                const messagesContainer = document.getElementById('chat-messages');
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                return;
-            }
-
-            if (readStatusInterval) clearInterval(readStatusInterval);
-            if (statusUpdateInterval) clearInterval(statusUpdateInterval);
-
-            currentChatUserId = userId;
-            const user = await eel.get_user_data(userId)();
-            
-            if (user) {
-                document.getElementById('default-content').classList.add('hidden');
-                document.getElementById('chat-container').classList.remove('hidden');
-                document.getElementById('chat-username').textContent = 
-                    userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
-                
-                await updateUserStatus();
-                
-                if (activeChats[userId]) {
-                    document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
-                    lastMessageId = activeChats[userId].lastMessageId;
-                    const messagesContainer = document.getElementById('chat-messages');
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                    
-                    // Переустанавливаем обработчики для голосовых сообщений
-                    setupVoiceMessageHandlers();
-                } else {
-                    await loadChatHistory(userId);
-                }
-                
-                readStatusInterval = setInterval(updateReadStatus, 2000);
-                updateReadStatus();
-                
-                statusUpdateInterval = setInterval(updateUserStatus, 5000);
-            }
+        
+        readStatusInterval = setInterval(updateReadStatus, 2000);
+        updateReadStatus();
+        
+        statusUpdateInterval = setInterval(updateUserStatus, 5000);
+        
+        // Помечаем карточку пользователя как активную
+        document.querySelectorAll('.user-bar').forEach(el => {
+            el.classList.remove('active-chat');
+        });
+        const userCard = document.querySelector(`.user-bar[data-user-id="${userId}"]`);
+        if (userCard) {
+            userCard.classList.add('active-chat');
         }
+    }
+}
 
         function setupVoiceMessageHandlers() {
             const voiceMessages = document.querySelectorAll('.voice-message');
@@ -411,11 +423,21 @@
                 for (const [messageId, isRead] of Object.entries(readStatus)) {
                     const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
                     if (messageElement) {
+                        // Обновляем статус прочтения в галочках
                         const infoElement = messageElement.querySelector('.message-info');
                         if (infoElement) {
                             const timeElement = infoElement.querySelector('span');
                             if (timeElement) {
                                 infoElement.innerHTML = `${timeElement.outerHTML}${isRead ? '✓✓' : '✓'}`;
+                            }
+                        }
+                        
+                        // Обновляем индикатор прослушивания для голосовых сообщений
+                        const voiceMessage = messageElement.querySelector('.voice-message');
+                        if (voiceMessage) {
+                            const indicator = voiceMessage.querySelector('.listen-indicator');
+                            if (indicator) {
+                                indicator.style.opacity = isRead ? '0' : '0.7';
                             }
                         }
                     }
@@ -545,49 +567,64 @@
         }
 
         function addMessageToChat(message, isMyMessage, isNewMessage = true) {
-            const messagesContainer = document.getElementById('chat-messages');
+    const messagesContainer = document.getElementById('chat-messages');
+    
+    if (messagesContainer.querySelector('.no-messages')) {
+        messagesContainer.innerHTML = '';
+    }
+    
+    let messageElement = document.querySelector(`.message[data-id="${message.id}"]`);
+    
+    if (!messageElement) {
+        messageElement = document.createElement('div');
+        messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
+        messageElement.dataset.id = message.id;
+        
+        const date = new Date(message.timestamp);
+        const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateString = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+        
+        if (message.isVoiceMessage || message.is_voice) {
+            const voiceElement = createVoiceMessageElement(message);
+            messageElement.appendChild(voiceElement);
             
-            if (messagesContainer.querySelector('.no-messages')) {
-                messagesContainer.innerHTML = '';
+            if (message.read) {
+                const indicator = voiceElement.querySelector('.listen-indicator');
+                if (indicator) indicator.style.opacity = '0';
             }
             
-            let messageElement = document.querySelector(`.message[data-id="${message.id}"]`);
-            
-            if (!messageElement) {
-                messageElement = document.createElement('div');
-                messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
-                messageElement.dataset.id = message.id;
-                
-                const date = new Date(message.timestamp);
-                const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                const dateString = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
-                
-                if (message.isVoiceMessage || message.is_voice) {
-                    const voiceElement = createVoiceMessageElement(message);
-                    messageElement.appendChild(voiceElement);
-                } else {
-                    messageElement.innerHTML = `
-                        <div class="message-text">${message.text}</div>
-                        <div class="message-info">
-                            <span>${dateString} ${timeString}</span>
-                            ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
-                        </div>
-                    `;
-                }
-                
-                messagesContainer.appendChild(messageElement);
-            } else if (isMyMessage && !message.isVoiceMessage && !message.is_voice) {
-                const infoElement = messageElement.querySelector('.message-info');
-                if (infoElement) {
-                    const timeElement = infoElement.querySelector('span');
-                    if (timeElement) {
-                        infoElement.innerHTML = `${timeElement.outerHTML}${message.read ? '✓✓' : '✓'}`;
-                    }
-                }
-            }
-            
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            // УДАЛЕНО: автоматическое воспроизведение только что отправленных сообщений
+        } else {
+            messageElement.innerHTML = `
+                <div class="message-text">${message.text}</div>
+                <div class="message-info">
+                    <span>${dateString} ${timeString}</span>
+                    ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
+                </div>
+            `;
         }
+        
+        messagesContainer.appendChild(messageElement);
+    } else if (isMyMessage && !message.isVoiceMessage && !message.is_voice) {
+        const infoElement = messageElement.querySelector('.message-info');
+        if (infoElement) {
+            const timeElement = infoElement.querySelector('span');
+            if (timeElement) {
+                infoElement.innerHTML = `${timeElement.outerHTML}${message.read ? '✓✓' : '✓'}`;
+            }
+        }
+    }
+    
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
+    // Сохраняем состояние чата
+    if (currentChatUserId) {
+        activeChats[currentChatUserId] = {
+            messages: messagesContainer.innerHTML,
+            lastMessageId: lastMessageId
+        };
+    }
+}
 
         async function checkForNewMessages() {
             if (!currentChatUserId) return;
@@ -894,202 +931,263 @@
         }
 
         async function sendVoiceMessage(audioBlob, duration, visualizationData) {
-            if (!currentChatUserId || !audioBlob) return;
+    if (!currentChatUserId || !audioBlob) return;
+    
+    try {
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        
+        reader.onload = async () => {
+            const audioData = reader.result.split(',')[1];
             
-            try {
-                const reader = new FileReader();
-                reader.readAsDataURL(audioBlob);
-                
-                reader.onload = async () => {
-                    const audioData = reader.result.split(',')[1];
-                    
-                    // Усредняем данные визуализации для финального отображения
-                    const finalVisualization = [];
-                    if (visualizationData && visualizationData.length > 0) {
-                        for (let i = 0; i < 20; i++) {
-                            let sum = 0;
-                            for (const frame of visualizationData) {
-                                sum += frame[i];
-                            }
-                            finalVisualization.push(sum / visualizationData.length);
-                        }
+            const finalVisualization = [];
+            if (visualizationData && visualizationData.length > 0) {
+                for (let i = 0; i < 20; i++) {
+                    let sum = 0;
+                    for (const frame of visualizationData) {
+                        sum += frame[i];
                     }
-                    
-                    const result = await eel.send_voice_message(
-                        localStorage.getItem('user_id'),
-                        currentChatUserId,
-                        audioData,
-                        duration,
-                        finalVisualization
-                    )();
-                    
-                    if (result.success) {
-                        const message = {
-                            id: result.message_id,
-                            sender_id: localStorage.getItem('user_id'),
-                            receiver_id: currentChatUserId,
-                            text: '[Голосовое сообщение]',
-                            timestamp: result.timestamp,
-                            read: result.read,
-                            isVoiceMessage: true,
-                            voiceData: audioData,
-                            duration: duration,
-                            visualization: finalVisualization
-                        };
-                        
-                        addMessageToChat(message, true, true);
-                        lastMessageId = message.id;
-                        
-                        if (activeChats[currentChatUserId]) {
-                            const messagesContainer = document.getElementById('chat-messages');
-                            activeChats[currentChatUserId] = {
-                                messages: messagesContainer.innerHTML,
-                                lastMessageId: lastMessageId
-                            };
-                        }
-                        
-                        updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
-                    }
+                    finalVisualization.push(sum / visualizationData.length);
+                }
+            }
+            
+            const result = await eel.send_voice_message(
+                localStorage.getItem('user_id'),
+                currentChatUserId, // Используем текущий открытый чат
+                audioData,
+                duration,
+                finalVisualization
+            )();
+            
+            if (result.success) {
+                const message = {
+                    id: result.message_id,
+                    sender_id: localStorage.getItem('user_id'),
+                    receiver_id: currentChatUserId,
+                    text: '[Голосовое сообщение]',
+                    timestamp: result.timestamp,
+                    read: result.read,
+                    isVoiceMessage: true,
+                    voiceData: audioData,
+                    duration: duration,
+                    visualization: finalVisualization
                 };
-            } catch (error) {
-                console.error('Ошибка отправки голосового сообщения:', error);
-            }
-        }
-
-        function createVoiceMessageElement(message) {
-            const voiceMessage = document.createElement('div');
-            voiceMessage.className = 'voice-message';
-            
-            const playBtn = document.createElement('button');
-            playBtn.className = 'play-voice-btn';
-            playBtn.innerHTML = '<img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s" alt="Play">';
-            
-            const visualization = document.createElement('div');
-            visualization.className = 'voice-visualization';
-            
-            // Создаем визуализацию на основе сохраненных данных
-            const visualizationData = message.visualization || Array(20).fill(0.3);
-            for (let i = 0; i < 20; i++) {
-                const bar = document.createElement('div');
-                bar.className = 'voice-bar';
-                const height = Math.max(3, visualizationData[i] * 30);
-                bar.style.height = `${height}px`;
                 
-                // Устанавливаем цвет в зависимости от типа сообщения
-                if (message.sender_id === localStorage.getItem('user_id')) {
-                    bar.style.backgroundColor = `rgba(0, 0, 0, ${0.2 + visualizationData[i] * 0.8})`;
-                } else {
-                    bar.style.backgroundColor = `rgba(255, 255, 255, ${0.5 + visualizationData[i] * 0.5})`;
+                // Для своих сообщений себе помечаем как прочитанные
+                if (currentChatUserId === localStorage.getItem('user_id')) {
+                    message.read = true;
                 }
                 
-                visualization.appendChild(bar);
-            }
-            
-            const time = document.createElement('div');
-            time.className = 'voice-time';
-            time.dataset.duration = message.duration;
-            time.textContent = `${message.duration.toFixed(1)} сек.`;
-            
-            voiceMessage.appendChild(playBtn);
-            voiceMessage.appendChild(visualization);
-            voiceMessage.appendChild(time);
-            
-            return voiceMessage;
-        }
-
-        function playVoiceMessage(audioData, voiceMessageElement, duration) {
-            // Останавливаем текущее воспроизведение, если есть
-            if (currentPlayingAudio) {
-                currentPlayingAudio.pause();
-                currentPlayingAudio = null;
+                addMessageToChat(message, true, true);
+                lastMessageId = message.id;
                 
-                if (currentPlayingVoiceElement) {
-                    currentPlayingVoiceElement.classList.remove('playing');
-                    const prevPlayBtn = currentPlayingVoiceElement.querySelector('.play-voice-btn img');
-                    prevPlayBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
-                    const prevTimeElement = currentPlayingVoiceElement.querySelector('.voice-time');
-                    prevTimeElement.textContent = `${parseFloat(prevTimeElement.dataset.duration).toFixed(1)} сек.`;
-                }
+                // Сохраняем состояние чата
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId] = {
+                    messages: messagesContainer.innerHTML,
+                    lastMessageId: lastMessageId
+                };
+                
+                // Обновляем последнее сообщение на карточке
+                updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
+                
+                // Устанавливаем обработчики для голосовых сообщений
+                setupVoiceMessageHandlers();
             }
+        };
+    } catch (error) {
+        console.error('Ошибка отправки голосового сообщения:', error);
+    }
+}
 
-            // Устанавливаем класс playing для текущего элемента
+function createVoiceMessageElement(message) {
+    const voiceMessage = document.createElement('div');
+    voiceMessage.className = 'voice-message';
+    voiceMessage.dataset.messageId = message.id; // Добавляем ID сообщения
+    
+    const playBtn = document.createElement('button');
+    playBtn.className = 'play-voice-btn';
+    playBtn.innerHTML = '<img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s" alt="Play">';
+    
+    const isMyMessage = message.sender_id === localStorage.getItem('user_id');
+    const isSelfMessage = message.sender_id === message.receiver_id;
+    
+    if (isMyMessage && !isSelfMessage) {
+        const listenIndicator = document.createElement('div');
+        listenIndicator.className = 'listen-indicator';
+        if (message.read) {
+            listenIndicator.style.opacity = '0';
+        }
+        voiceMessage.appendChild(listenIndicator);
+    }
+    
+    const visualization = document.createElement('div');
+    visualization.className = 'voice-visualization';
+    
+    const visualizationData = message.visualization || Array(20).fill(0.3);
+    for (let i = 0; i < 20; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'voice-bar';
+        const height = Math.max(3, visualizationData[i] * 30);
+        bar.style.height = `${height}px`;
+        
+        if (isMyMessage) {
+            bar.style.backgroundColor = `rgba(0, 0, 0, ${0.2 + visualizationData[i] * 0.8})`;
+        } else {
+            bar.style.backgroundColor = `rgba(255, 255, 255, ${0.5 + visualizationData[i] * 0.5})`;
+        }
+        
+        visualization.appendChild(bar);
+    }
+    
+    const time = document.createElement('div');
+    time.className = 'voice-time';
+    time.dataset.duration = message.duration;
+    time.textContent = `${message.duration.toFixed(1)} сек.`;
+    
+    voiceMessage.appendChild(playBtn);
+    voiceMessage.appendChild(visualization);
+    voiceMessage.appendChild(time);
+    
+    return voiceMessage;
+}
+
+function playVoiceMessage(audioData, voiceMessageElement, duration) {
+    // Если это уже текущее сообщение и оно на паузе - возобновляем
+    if (currentPlayingVoiceElement === voiceMessageElement && currentPlayingAudio) {
+        const currentTime = currentPlayingAudio.currentTime;
+        currentPlayingAudio.play().then(() => {
             voiceMessageElement.classList.add('playing');
             voiceMessagePlaying = true;
-            currentPlayingVoiceElement = voiceMessageElement;
-            
-            const audio = new Audio(`data:audio/wav;base64,${audioData}`);
-            currentPlayingAudio = audio;
             
             const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
             playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
             
             const timeElement = voiceMessageElement.querySelector('.voice-time');
-            timeElement.dataset.duration = duration;
-            const startTime = Date.now();
+            const startTime = Date.now() - (currentTime * 1000);
             
-            // Функция обновления времени
             const updateTime = () => {
                 if (!voiceMessagePlaying) return;
                 
                 const elapsed = (Date.now() - startTime) / 1000;
-                timeElement.textContent = `${elapsed.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+                const currentPos = Math.min(elapsed, duration);
+                timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
                 
-                if (elapsed < duration && voiceMessagePlaying) {
+                if (currentPos >= duration) {
+                    // Сообщение прослушано полностью - показываем только длительность
+                    timeElement.textContent = `${duration.toFixed(1)} сек.`;
+                    stopVoiceMessage(voiceMessageElement, true);
+                } else if (voiceMessagePlaying) {
                     requestAnimationFrame(updateTime);
-                } else {
-                    stopVoiceMessage(voiceMessageElement);
                 }
             };
-                
-            // Обработчики событий аудио
-            audio.addEventListener('ended', () => {
-                stopVoiceMessage(voiceMessageElement);
-            });
             
-            audio.addEventListener('pause', () => {
-                stopVoiceMessage(voiceMessageElement);
-            });
-            
-            audio.addEventListener('error', () => {
-                stopVoiceMessage(voiceMessageElement);
-                alert('Ошибка воспроизведения голосового сообщения');
-            });
-            
-            // Запускаем воспроизведение
-            audio.play().then(() => {
-                updateTime();
-            }).catch(error => {
-                console.error('Ошибка воспроизведения:', error);
-                stopVoiceMessage(voiceMessageElement);
-            });
-        }
+            updateTime();
+        }).catch(error => {
+            console.error('Ошибка возобновления:', error);
+        });
+        return;
+    }
 
-        function stopVoiceMessage(voiceMessageElement = null) {
-            if (!voiceMessageElement) {
-                voiceMessageElement = currentPlayingVoiceElement;
-            }
-            
-            if (currentPlayingAudio) {
-                currentPlayingAudio.pause();
-                currentPlayingAudio = null;
-            }
-            
-            voiceMessagePlaying = false;
-            
-            if (voiceMessageElement) {
-                voiceMessageElement.classList.remove('playing');
-                const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
-                playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
-                
-                const timeElement = voiceMessageElement.querySelector('.voice-time');
-                const duration = parseFloat(timeElement.dataset.duration) || 0;
-                timeElement.textContent = `${duration.toFixed(1)} сек.`;
-                
-                if (voiceMessageElement === currentPlayingVoiceElement) {
-                    currentPlayingVoiceElement = null;
-                }
-            }
+    // Останавливаем текущее воспроизведение, если есть
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio = null;
+        
+        if (currentPlayingVoiceElement) {
+            stopVoiceMessage(currentPlayingVoiceElement, true);
         }
+    }
+
+    // Устанавливаем класс playing для текущего элемента
+    voiceMessageElement.classList.add('playing');
+    voiceMessagePlaying = true;
+    currentPlayingVoiceElement = voiceMessageElement;
+    
+    const audio = new Audio(`data:audio/wav;base64,${audioData}`);
+    currentPlayingAudio = audio;
+    
+    const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
+    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
+    
+    const timeElement = voiceMessageElement.querySelector('.voice-time');
+    timeElement.dataset.duration = duration;
+    
+    // Сразу устанавливаем формат "X.X сек." при начале воспроизведения
+    timeElement.textContent = `${duration.toFixed(1)} сек.`;
+    
+    // Функция обновления времени
+    const updateTime = () => {
+        if (!voiceMessagePlaying) return;
+        
+        const currentPos = audio.currentTime;
+        timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        
+        if (currentPos >= duration) {
+            // Сообщение прослушано полностью - показываем только длительность
+            timeElement.textContent = `${duration.toFixed(1)} сек.`;
+            stopVoiceMessage(voiceMessageElement, true);
+        } else if (voiceMessagePlaying) {
+            requestAnimationFrame(updateTime);
+        }
+    };
+        
+    // Обработчики событий аудио
+    audio.addEventListener('ended', () => {
+        timeElement.textContent = `${duration.toFixed(1)} сек.`;
+        stopVoiceMessage(voiceMessageElement, true);
+    });
+    
+    audio.addEventListener('pause', () => {
+        voiceMessagePlaying = false;
+        const currentTime = audio.currentTime;
+        timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+    });
+    
+    audio.addEventListener('error', () => {
+        stopVoiceMessage(voiceMessageElement, true);
+        alert('Ошибка воспроизведения голосового сообщения');
+    });
+    
+    // Запускаем воспроизведение
+    audio.play().then(() => {
+        updateTime();
+    }).catch(error => {
+        console.error('Ошибка воспроизведения:', error);
+        stopVoiceMessage(voiceMessageElement, true);
+    });
+}
+
+function stopVoiceMessage(voiceMessageElement = null, reset = false) {
+    if (!voiceMessageElement) {
+        voiceMessageElement = currentPlayingVoiceElement;
+    }
+    
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        if (reset) {
+            currentPlayingAudio.currentTime = 0;
+            currentPlayingAudio = null;
+        }
+        voiceMessagePlaying = false;
+    }
+    
+    if (voiceMessageElement) {
+        voiceMessageElement.classList.remove('playing');
+        const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
+        playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
+        
+        const timeElement = voiceMessageElement.querySelector('.voice-time');
+        const duration = parseFloat(timeElement.dataset.duration) || 0;
+        
+        if (reset) {
+            timeElement.textContent = `${duration.toFixed(1)} сек.`;
+            currentPlayingVoiceElement = null;
+        } else {
+            timeElement.textContent = `${Math.min(currentPlayingAudio?.currentTime || 0, duration).toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        }
+    }
+}
     </script>
 </body>
 </html>
