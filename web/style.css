@@ -914,7 +914,22 @@ body {
 }
 
 
+.my-message .listen-indicator {
+    background-color: #4CAF50;
+    opacity: 0.7;
+}
 
+.their-message .listen-indicator {
+    background-color: #fff;
+    opacity: 0.9;
+}
+
+.message.read .listen-indicator,
+.voice-message.played .listen-indicator {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
 
 .listen-indicator {
     position: absolute;

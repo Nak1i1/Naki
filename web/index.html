@@ -167,11 +167,51 @@
             // Обработчик нажатия ESC
             document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+        // Если открыто модальное окно выхода - закрываем его
         if (!document.getElementById('logout-modal').classList.contains('hidden')) {
             closeLogoutModal();
-        } else {
-            closeChat();
-            // После закрытия чата currentChatUserId остается установленным
+            return;
+        }
+        
+        // Если открыт чат - обрабатываем закрытие
+        if (!document.getElementById('chat-container').classList.contains('hidden')) {
+            // Сбрасываем currentChatUserId только если это не чат с самим собой
+            if (currentChatUserId !== localStorage.getItem('user_id')) {
+                currentChatUserId = null;
+            }
+            
+            // Скрываем контейнер чата и показываем дефолтный экран
+            document.getElementById('default-content').classList.remove('hidden');
+            document.getElementById('chat-container').classList.add('hidden');
+            
+            // Убираем выделение активного чата
+            document.querySelectorAll('.user-bar').forEach(el => {
+                el.classList.remove('active-chat');
+            });
+            
+            // Останавливаем воспроизведение голосовых сообщений
+            stopVoiceMessage();
+            currentPlayingAudio = null;
+            voiceMessagePlaying = false;
+            currentPlayingVoiceElement = null;
+            
+            // Очищаем интервалы
+            if (readStatusInterval) {
+                clearInterval(readStatusInterval);
+                readStatusInterval = null;
+            }
+            if (statusUpdateInterval) {
+                clearInterval(statusUpdateInterval);
+                statusUpdateInterval = null;
+            }
+            
+            // Для чата с самим собой сохраняем возможность открыть его снова
+            if (currentChatUserId === localStorage.getItem('user_id')) {
+                const selfChat = document.querySelector(`.user-bar[data-user-id="${currentChatUserId}"]`);
+                if (selfChat) {
+                    selfChat.classList.add('active-chat');
+                }
+            }
         }
     }
 });
@@ -231,7 +271,8 @@
             document.getElementById('logout-modal').classList.add('hidden');
         }
 
-        function closeChat() {
+
+        function closeChat(softClose = false) {
     document.getElementById('default-content').classList.remove('hidden');
     document.getElementById('chat-container').classList.add('hidden');
     document.querySelectorAll('.user-bar').forEach(el => {
@@ -243,8 +284,10 @@
     voiceMessagePlaying = false;
     currentPlayingVoiceElement = null;
     
-    // Не сбрасываем currentChatUserId, чтобы можно было открыть тот же чат снова
-    // currentChatUserId = null;
+    // Сбрасываем currentChatUserId только если это не softClose
+    if (!softClose) {
+        currentChatUserId = null;
+    }
     
     lastMessageId = null;
     
@@ -260,7 +303,7 @@
 
 async function openChat(userId) {
     // Если чат уже открыт, просто прокручиваем сообщения
-    if (currentChatUserId === userId) {
+    if (currentChatUserId === userId && !document.getElementById('chat-container').classList.contains('hidden')) {
         const messagesContainer = document.getElementById('chat-messages');
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         return;
@@ -409,43 +452,47 @@ async function openChat(userId) {
         }
 
         async function updateReadStatus() {
-            if (!currentChatUserId) return;
-            
-            try {
-                const myMessages = Array.from(document.querySelectorAll('.my-message'))
-                    .map(el => el.dataset.id)
-                    .filter(id => id);
-                
-                if (myMessages.length === 0) return;
-                
-                const readStatus = await eel.check_message_read_status(myMessages)();
-                
-                for (const [messageId, isRead] of Object.entries(readStatus)) {
-                    const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
-                    if (messageElement) {
-                        // Обновляем статус прочтения в галочках
-                        const infoElement = messageElement.querySelector('.message-info');
-                        if (infoElement) {
-                            const timeElement = infoElement.querySelector('span');
-                            if (timeElement) {
-                                infoElement.innerHTML = `${timeElement.outerHTML}${isRead ? '✓✓' : '✓'}`;
-                            }
-                        }
-                        
-                        // Обновляем индикатор прослушивания для голосовых сообщений
-                        const voiceMessage = messageElement.querySelector('.voice-message');
-                        if (voiceMessage) {
-                            const indicator = voiceMessage.querySelector('.listen-indicator');
-                            if (indicator) {
-                                indicator.style.opacity = isRead ? '0' : '0.7';
-                            }
+    if (!currentChatUserId) return;
+    
+    try {
+        const myMessages = Array.from(document.querySelectorAll('.my-message'))
+            .map(el => el.dataset.id)
+            .filter(id => id);
+        
+        if (myMessages.length === 0) return;
+        
+        const readStatus = await eel.check_message_read_status(myMessages)();
+        const listenedStatus = await eel.check_voice_messages_listened_status(myMessages)();
+        
+        for (const [messageId, isRead] of Object.entries(readStatus)) {
+            const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+            if (messageElement) {
+                // Обновляем статус прочтения только для текстовых сообщений
+                const voiceMessage = messageElement.querySelector('.voice-message');
+                if (!voiceMessage) {
+                    const infoElement = messageElement.querySelector('.message-info');
+                    if (infoElement) {
+                        const timeElement = infoElement.querySelector('span');
+                        if (timeElement) {
+                            infoElement.innerHTML = `${timeElement.outerHTML}${isRead ? '✓✓' : '✓'}`;
                         }
                     }
                 }
-            } catch (error) {
-                console.error('Ошибка при обновлении статуса прочтения:', error);
+                
+                // Обновляем индикатор прослушивания для голосовых сообщений
+                if (voiceMessage) {
+                    const indicator = voiceMessage.querySelector('.listen-indicator');
+                    if (indicator) {
+                        const isListened = listenedStatus[messageId] || false;
+                        indicator.style.opacity = isListened ? '0' : '0.7';
+                    }
+                }
             }
         }
+    } catch (error) {
+        console.error('Ошибка при обновлении статуса прочтения:', error);
+    }
+}
 
         async function loadChatHistory(userId) {
             try {
@@ -1003,24 +1050,22 @@ async function openChat(userId) {
 function createVoiceMessageElement(message) {
     const voiceMessage = document.createElement('div');
     voiceMessage.className = 'voice-message';
-    voiceMessage.dataset.messageId = message.id; // Добавляем ID сообщения
+    voiceMessage.dataset.messageId = message.id;
     
     const playBtn = document.createElement('button');
     playBtn.className = 'play-voice-btn';
     playBtn.innerHTML = '<img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s" alt="Play">';
     
     const isMyMessage = message.sender_id === localStorage.getItem('user_id');
-    const isSelfMessage = message.sender_id === message.receiver_id;
     
-    if (isMyMessage && !isSelfMessage) {
+    // Добавляем индикатор прослушивания для всех непрослушанных голосовых сообщений
+    if (!message.read) {
         const listenIndicator = document.createElement('div');
         listenIndicator.className = 'listen-indicator';
-        if (message.read) {
-            listenIndicator.style.opacity = '0';
-        }
         voiceMessage.appendChild(listenIndicator);
     }
     
+    // Остальной код функции без изменений
     const visualization = document.createElement('div');
     visualization.className = 'voice-visualization';
     
@@ -1074,9 +1119,7 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
                 timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
                 
                 if (currentPos >= duration) {
-                    // Сообщение прослушано полностью - показываем только длительность
-                    timeElement.textContent = `${duration.toFixed(1)} сек.`;
-                    stopVoiceMessage(voiceMessageElement, true);
+                    handleVoiceMessagePlayed(voiceMessageElement);
                 } else if (voiceMessagePlaying) {
                     requestAnimationFrame(updateTime);
                 }
@@ -1112,9 +1155,19 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     
     const timeElement = voiceMessageElement.querySelector('.voice-time');
     timeElement.dataset.duration = duration;
-    
-    // Сразу устанавливаем формат "X.X сек." при начале воспроизведения
     timeElement.textContent = `${duration.toFixed(1)} сек.`;
+    
+    // Получаем родительский элемент сообщения
+    const messageElement = voiceMessageElement.closest('.message');
+    const isMyMessage = messageElement.classList.contains('my-message');
+    
+    // Если это сообщение от текущего пользователя, не скрываем индикатор
+    if (isMyMessage) {
+        const indicator = voiceMessageElement.querySelector('.listen-indicator');
+        if (indicator) {
+            indicator.style.opacity = '0.7'; // Оставляем индикатор видимым
+        }
+    }
     
     // Функция обновления времени
     const updateTime = () => {
@@ -1124,9 +1177,7 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
         timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
         
         if (currentPos >= duration) {
-            // Сообщение прослушано полностью - показываем только длительность
-            timeElement.textContent = `${duration.toFixed(1)} сек.`;
-            stopVoiceMessage(voiceMessageElement, true);
+            handleVoiceMessagePlayed(voiceMessageElement);
         } else if (voiceMessagePlaying) {
             requestAnimationFrame(updateTime);
         }
@@ -1134,8 +1185,7 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
         
     // Обработчики событий аудио
     audio.addEventListener('ended', () => {
-        timeElement.textContent = `${duration.toFixed(1)} сек.`;
-        stopVoiceMessage(voiceMessageElement, true);
+        handleVoiceMessagePlayed(voiceMessageElement);
     });
     
     audio.addEventListener('pause', () => {
@@ -1156,6 +1206,33 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
         console.error('Ошибка воспроизведения:', error);
         stopVoiceMessage(voiceMessageElement, true);
     });
+}
+
+function handleVoiceMessagePlayed(voiceMessageElement) {
+    const messageElement = voiceMessageElement.closest('.message');
+    const messageId = messageElement?.dataset.id;
+    const timeElement = voiceMessageElement.querySelector('.voice-time');
+    const duration = parseFloat(timeElement.dataset.duration) || 0;
+    
+    timeElement.textContent = `${duration.toFixed(1)} сек.`;
+    stopVoiceMessage(voiceMessageElement, true);
+    
+    // Получаем информацию о сообщении
+    const isMyMessage = messageElement.classList.contains('my-message');
+    
+    // Обновляем индикатор только для чужих сообщений
+    if (!isMyMessage) {
+        const indicator = voiceMessageElement.querySelector('.listen-indicator');
+        if (indicator) {
+            indicator.style.opacity = '0';
+        }
+    }
+    
+    // Отправляем на сервер информацию о прослушивании
+    if (messageId && !isMyMessage) {
+        const userId = localStorage.getItem('user_id');
+        eel.mark_voice_message_as_listened(messageId, userId)();
+    }
 }
 
 function stopVoiceMessage(voiceMessageElement = null, reset = false) {

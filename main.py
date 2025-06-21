@@ -323,12 +323,14 @@ def get_chat_history(user1_id, user2_id):
             ]
         }).sort("timestamp", 1)
         
+        # Помечаем текстовые сообщения как прочитанные, но не голосовые
         if user1_id != user2_id:
             messages_collection.update_many(
                 {
                     "sender_id": ObjectId(user2_id),
                     "receiver_id": ObjectId(user1_id),
-                    "read": False
+                    "read": False,
+                    "is_voice": {"$ne": True}  # Не обновляем статус для голосовых
                 },
                 {"$set": {"read": True}}
             )
@@ -341,7 +343,8 @@ def get_chat_history(user1_id, user2_id):
                 "receiver_id": str(msg["receiver_id"]),
                 "text": msg["text"],
                 "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
-                "read": msg.get("read", False)
+                "read": msg.get("read", False),
+                "listened": msg.get("listened", False) if msg.get("is_voice") else True
             }
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
@@ -353,7 +356,6 @@ def get_chat_history(user1_id, user2_id):
     except Exception as e:
         logger.error(f"Ошибка получения истории чата: {e}")
         return []
-
 
 @eel.expose
 def check_new_messages(user_id, last_message_id=None):
@@ -379,7 +381,8 @@ def check_new_messages(user_id, last_message_id=None):
                 "receiver_id": str(msg["receiver_id"]),
                 "text": msg["text"],
                 "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
-                "read": True
+                "read": True,
+                "listened": msg.get("listened", False) if msg.get("is_voice") else True
             }
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
@@ -391,6 +394,7 @@ def check_new_messages(user_id, last_message_id=None):
     except Exception as e:
         logger.error(f"Ошибка проверки новых сообщений: {e}")
         return []
+    
 
 @eel.expose
 def check_message_read_status(message_ids):
@@ -403,6 +407,7 @@ def check_message_read_status(message_ids):
     except Exception as e:
         logger.error(f"Ошибка проверки статуса прочтения: {e}")
         return {}
+
 
 @eel.expose
 def send_voice_message(sender_id, receiver_id, voice_data, duration, visualization_data=None):
@@ -424,11 +429,12 @@ def send_voice_message(sender_id, receiver_id, voice_data, duration, visualizati
             "text": "[Голосовое сообщение]",
             "timestamp": utc_time,
             "read": is_self_message,
+            "listened": is_self_message,  # Для сообщений самому себе сразу помечаем как прослушанные
             "local_timestamp": local_time_str,
             "is_voice": True,
             "voice_data": voice_data,
             "duration": float(duration),
-            "visualization": visualization_data  # Добавляем данные визуализации
+            "visualization": visualization_data
         }
         
         result = messages_collection.insert_one(message_data)
@@ -437,11 +443,48 @@ def send_voice_message(sender_id, receiver_id, voice_data, duration, visualizati
             "success": True,
             "message_id": str(result.inserted_id),
             "timestamp": local_time_str,
-            "read": is_self_message
+            "read": is_self_message,
+            "listened": is_self_message
         }
     except Exception as e:
         logger.error(f"Ошибка отправки голосового сообщения: {e}")
         return {"success": False, "message": "Ошибка при отправке голосового сообщения"}
+    
+@eel.expose
+def mark_voice_message_as_listened(message_id, listener_id):
+    try:
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if not message:
+            return {"success": False, "message": "Сообщение не найдено"}
+        
+        # Проверяем, что слушатель является получателем сообщения
+        if str(message["receiver_id"]) != listener_id:
+            return {"success": False, "message": "Недостаточно прав для отметки сообщения"}
+        
+        result = messages_collection.update_one(
+            {"_id": ObjectId(message_id)},
+            {"$set": {"listened": True}}
+        )
+        
+        if result.modified_count > 0:
+            return {"success": True}
+        return {"success": False, "message": "Сообщение уже было отмечено как прослушанное"}
+    except Exception as e:
+        logger.error(f"Ошибка отметки голосового сообщения как прослушанного: {e}")
+        return {"success": False, "message": "Ошибка при отметке сообщения"}    
+@eel.expose
+def check_voice_messages_listened_status(message_ids):
+    try:
+        messages = messages_collection.find({
+            "_id": {"$in": [ObjectId(id) for id in message_ids]},
+            "is_voice": True
+        })
+        
+        return {str(msg["_id"]): msg.get("listened", False) for msg in messages}
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса прослушивания: {e}")
+        return {}
+    
     
 @eel.expose
 def get_voice_message(message_id):
@@ -465,7 +508,8 @@ def mark_messages_as_read(sender_id, receiver_id):
             {
                 "sender_id": ObjectId(sender_id),
                 "receiver_id": ObjectId(receiver_id),
-                "read": False
+                "read": False,
+                "is_voice": {"$ne": True}  # Не помечаем голосовые как прочитанные
             },
             {"$set": {"read": True}}
         )
