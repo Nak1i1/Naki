@@ -367,8 +367,10 @@ async function updateListenIndicators() {
         
         if (messages.length === 0) return;
         
-        const listenedStatus = await eel.check_voice_messages_listened_status(messages.map(m => m.id))();
+        // Проверяем localStorage
+        const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
         
+        // Сначала обновляем индикаторы на основе localStorage
         messages.forEach(msg => {
             const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
             if (messageElement) {
@@ -376,8 +378,38 @@ async function updateListenIndicators() {
                 if (voiceMessage) {
                     const indicator = voiceMessage.querySelector('.listen-indicator');
                     if (indicator) {
+                        const isMyMessage = messageElement.classList.contains('my-message');
+                        
+                        // Если сообщение уже прослушано (по данным localStorage), скрываем индикатор
+                        if (listenedMessages[msg.id] && !isMyMessage) {
+                            indicator.style.opacity = '0';
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Затем проверяем статус на сервере
+        const listenedStatus = await eel.check_voice_messages_listened_status(messages.map(m => m.id))();
+        
+        messages.forEach(msg => {
+            const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
+            if (messageElement) {
+                const voiceMessage = messageMessageElement.querySelector('.voice-message');
+                if (voiceMessage) {
+                    const indicator = voiceMessage.querySelector('.listen-indicator');
+                    if (indicator) {
                         const isListened = listenedStatus[msg.id] || false;
-                        indicator.style.opacity = isListened ? '0' : '0.7';
+                        const isMyMessage = messageElement.classList.contains('my-message');
+                        
+                        if (!isMyMessage && isListened) {
+                            indicator.style.opacity = '0';
+                            
+                            // Сохраняем в localStorage
+                            const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+                            listenedMessages[msg.id] = true;
+                            localStorage.setItem('listenedVoiceMessages', JSON.stringify(listenedMessages));
+                        }
                     }
                 }
             }
@@ -1134,17 +1166,20 @@ function createVoiceMessageElement(message) {
     
     const isMyMessage = message.sender_id === localStorage.getItem('user_id');
     
-    // Всегда добавляем индикатор, но управляем его видимостью через opacity
+    // Проверяем localStorage перед установкой opacity
+    const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+    const isListened = listenedMessages[message.id] || message.listened;
+    
+    // Создаем индикатор прослушивания
     const listenIndicator = document.createElement('div');
     listenIndicator.className = 'listen-indicator';
     
-    // Для своих сообщений индикатор всегда видим (если не прослушано)
     if (isMyMessage) {
-        listenIndicator.style.opacity = message.listened ? '0' : '0.7';
-    } 
-    // Для чужих сообщений индикатор видим только если не прослушано
-    else {
-        listenIndicator.style.opacity = message.listened ? '0' : '0.7';
+        // Для своих сообщений индикатор видим только если не прослушано
+        listenIndicator.style.opacity = isListened ? '0' : '0.7';
+    } else {
+        // Для чужих сообщений индикатор видим только если не прослушано
+        listenIndicator.style.opacity = isListened ? '0' : '0.7';
     }
     
     voiceMessage.appendChild(listenIndicator);
@@ -1179,6 +1214,7 @@ function createVoiceMessageElement(message) {
     
     return voiceMessage;
 }
+
 function playVoiceMessage(audioData, voiceMessageElement, duration) {
     // Если это уже текущее сообщение и оно на паузе - возобновляем
     if (currentPlayingVoiceElement === voiceMessageElement && currentPlayingAudio) {
@@ -1306,6 +1342,13 @@ function handleVoiceMessagePlayed(voiceMessageElement) {
     // Для своих сообщений НЕ изменяем состояние индикатора
     if (!isMyMessage && indicator) {
         indicator.style.opacity = '0';
+        
+        // Сохраняем в localStorage, что сообщение прослушано
+        if (messageId) {
+            const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+            listenedMessages[messageId] = true;
+            localStorage.setItem('listenedVoiceMessages', JSON.stringify(listenedMessages));
+        }
     }
     
     // Обновляем состояние в кеше только для чужих сообщений
