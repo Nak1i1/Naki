@@ -326,7 +326,7 @@ async function openChat(userId) {
         document.getElementById('chat-container').classList.remove('hidden');
         document.getElementById('chat-username').textContent = 
             userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
-            await updateUserStatus();
+        await updateUserStatus();
         
         if (activeChats[userId]) {
             document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
@@ -334,7 +334,8 @@ async function openChat(userId) {
             const messagesContainer = document.getElementById('chat-messages');
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
             
-            // Переустанавливаем обработчики для голосовых сообщений
+            // Обновляем индикаторы перед установкой обработчиков
+            await updateListenIndicators();
             setupVoiceMessageHandlers();
         } else {
             await loadChatHistory(userId);
@@ -356,27 +357,71 @@ async function openChat(userId) {
     }
 }
 
-        function setupVoiceMessageHandlers() {
-            const voiceMessages = document.querySelectorAll('.voice-message');
-            voiceMessages.forEach((voiceMessage) => {
-                const playBtn = voiceMessage.querySelector('.play-voice-btn');
-                playBtn.addEventListener('click', async () => {
-                    const isPlaying = voiceMessage.classList.contains('playing');
-                    
-                    if (isPlaying) {
-                        stopVoiceMessage(voiceMessage);
-                    } else {
-                        const messageId = voiceMessage.closest('.message').dataset.id;
-                        const response = await eel.get_voice_message(messageId)();
-                        if (response.success) {
-                            playVoiceMessage(response.voice_data, voiceMessage, response.duration);
-                        } else {
-                            alert('Не удалось загрузить голосовое сообщение');
-                        }
+async function updateListenIndicators() {
+    if (!currentChatUserId) return;
+    
+    try {
+        const messages = Array.from(document.querySelectorAll('.message'))
+            .map(el => ({id: el.dataset.id, isVoice: !!el.querySelector('.voice-message')}))
+            .filter(msg => msg.id && msg.isVoice);
+        
+        if (messages.length === 0) return;
+        
+        const listenedStatus = await eel.check_voice_messages_listened_status(messages.map(m => m.id))();
+        
+        messages.forEach(msg => {
+            const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
+            if (messageElement) {
+                const voiceMessage = messageElement.querySelector('.voice-message');
+                if (voiceMessage) {
+                    const indicator = voiceMessage.querySelector('.listen-indicator');
+                    if (indicator) {
+                        const isListened = listenedStatus[msg.id] || false;
+                        indicator.style.opacity = isListened ? '0' : '0.7';
                     }
-                });
-            });
-        }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при обновлении индикаторов прослушивания:', error);
+    }
+}
+
+
+function setupVoiceMessageHandlers() {
+    const voiceMessages = document.querySelectorAll('.voice-message');
+    voiceMessages.forEach((voiceMessage) => {
+        const playBtn = voiceMessage.querySelector('.play-voice-btn');
+        playBtn.addEventListener('click', async () => {
+            const isPlaying = voiceMessage.classList.contains('playing');
+            const messageElement = voiceMessage.closest('.message');
+            const isMyMessage = messageElement.classList.contains('my-message');
+            
+            if (isPlaying) {
+                stopVoiceMessage(voiceMessage);
+            } else {
+                // Для своих сообщений используем данные из кеша
+                if (isMyMessage) {
+                    const messageId = messageElement.dataset.id;
+                    const cachedMessage = activeChats[currentChatUserId]?.messagesData?.find(m => m.id === messageId);
+                    if (cachedMessage && cachedMessage.voiceData) {
+                        playVoiceMessage(cachedMessage.voiceData, voiceMessage, cachedMessage.duration);
+                        return;
+                    }
+                }
+                
+                // Для чужих сообщений запрашиваем данные с сервера
+                const messageId = messageElement.dataset.id;
+                const response = await eel.get_voice_message(messageId)();
+                if (response.success) {
+                    playVoiceMessage(response.voice_data, voiceMessage, response.duration);
+                } else {
+                    alert('Не удалось загрузить голосовое сообщение');
+                }
+            }
+        });
+    });
+}
 
         async function updateUserStatus() {
             if (!currentChatUserId) return;
@@ -494,45 +539,56 @@ async function openChat(userId) {
     }
 }
 
-        async function loadChatHistory(userId) {
-            try {
-                const messages = await eel.get_chat_history(localStorage.getItem('user_id'), userId)();
-                const messagesContainer = document.getElementById('chat-messages');
-                messagesContainer.innerHTML = '';
+async function loadChatHistory(userId) {
+    try {
+        const messages = await eel.get_chat_history(localStorage.getItem('user_id'), userId)();
+        const messagesContainer = document.getElementById('chat-messages');
+        messagesContainer.innerHTML = '';
 
-                if (messages && messages.length > 0) {
-                    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                    
-                    messages.forEach(msg => {
-                        const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
-                        addMessageToChat(msg, isMyMessage, false);
+        if (messages && messages.length > 0) {
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            // Сохраняем данные сообщений
+            const messagesData = [];
+            
+            messages.forEach(msg => {
+                const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
+                addMessageToChat(msg, isMyMessage, false);
+                
+                if (msg.isVoiceMessage || msg.is_voice) {
+                    messagesData.push({
+                        id: msg.id,
+                        voiceData: msg.voiceData,
+                        duration: msg.duration,
+                        isVoiceMessage: true
                     });
-                    
-                    lastMessageId = messages[messages.length - 1].id;
-                    
-                    activeChats[userId] = {
-                        messages: messagesContainer.innerHTML,
-                        lastMessageId: lastMessageId
-                    };
-                    
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                    
-                    // Устанавливаем обработчики для голосовых сообщений
-                    setupVoiceMessageHandlers();
-                } else {
-                    messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
-                    lastMessageId = null;
-                    
-                    activeChats[userId] = {
-                        messages: messagesContainer.innerHTML,
-                        lastMessageId: null
-                    };
                 }
-            } catch (error) {
-                console.error('Error loading chat history:', error);
-            }
+            });
+            
+            lastMessageId = messages[messages.length - 1].id;
+            
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: lastMessageId,
+                messagesData: messagesData
+            };
+            
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            setupVoiceMessageHandlers();
+        } else {
+            messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
+            lastMessageId = null;
+            
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: null,
+                messagesData: []
+            };
         }
-
+    } catch (error) {
+        console.error('Error loading chat history:', error);
+    }
+}
         async function sendMessage(text) {
             if (!currentChatUserId || !text) return;
             
@@ -639,8 +695,6 @@ async function openChat(userId) {
                 const indicator = voiceElement.querySelector('.listen-indicator');
                 if (indicator) indicator.style.opacity = '0';
             }
-            
-            // УДАЛЕНО: автоматическое воспроизведение только что отправленных сообщений
         } else {
             messageElement.innerHTML = `
                 <div class="message-text">${message.text}</div>
@@ -664,14 +718,30 @@ async function openChat(userId) {
     
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
-    // Сохраняем состояние чата
+    // Сохраняем состояние чата и данные сообщений
     if (currentChatUserId) {
-        activeChats[currentChatUserId] = {
-            messages: messagesContainer.innerHTML,
-            lastMessageId: lastMessageId
-        };
+        if (!activeChats[currentChatUserId]) {
+            activeChats[currentChatUserId] = {
+                messages: '',
+                lastMessageId: null,
+                messagesData: []
+            };
+        }
+        
+        activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+        activeChats[currentChatUserId].lastMessageId = lastMessageId;
+        
+        if (isNewMessage && (message.isVoiceMessage || message.is_voice)) {
+            activeChats[currentChatUserId].messagesData.push({
+                id: message.id,
+                voiceData: message.voiceData,
+                duration: message.duration,
+                isVoiceMessage: true
+            });
+        }
     }
 }
+
 
         async function checkForNewMessages() {
             if (!currentChatUserId) return;
@@ -1000,7 +1070,7 @@ async function openChat(userId) {
             
             const result = await eel.send_voice_message(
                 localStorage.getItem('user_id'),
-                currentChatUserId, // Используем текущий открытый чат
+                currentChatUserId,
                 audioData,
                 duration,
                 finalVisualization
@@ -1017,13 +1087,9 @@ async function openChat(userId) {
                     isVoiceMessage: true,
                     voiceData: audioData,
                     duration: duration,
-                    visualization: finalVisualization
+                    visualization: finalVisualization,
+                    listened: currentChatUserId === localStorage.getItem('user_id') // Для своих сообщений сразу помечаем как прослушанные
                 };
-                
-                // Для своих сообщений себе помечаем как прочитанные
-                if (currentChatUserId === localStorage.getItem('user_id')) {
-                    message.read = true;
-                }
                 
                 addMessageToChat(message, true, true);
                 lastMessageId = message.id;
@@ -1032,8 +1098,18 @@ async function openChat(userId) {
                 const messagesContainer = document.getElementById('chat-messages');
                 activeChats[currentChatUserId] = {
                     messages: messagesContainer.innerHTML,
-                    lastMessageId: lastMessageId
+                    lastMessageId: lastMessageId,
+                    messagesData: activeChats[currentChatUserId]?.messagesData || []
                 };
+                
+                // Добавляем данные сообщения в кеш
+                activeChats[currentChatUserId].messagesData.push({
+                    id: message.id,
+                    voiceData: message.voiceData,
+                    duration: message.duration,
+                    isVoiceMessage: true,
+                    listened: message.listened
+                });
                 
                 // Обновляем последнее сообщение на карточке
                 updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
@@ -1058,14 +1134,21 @@ function createVoiceMessageElement(message) {
     
     const isMyMessage = message.sender_id === localStorage.getItem('user_id');
     
-    // Добавляем индикатор прослушивания для всех непрослушанных голосовых сообщений
-    if (!message.read) {
-        const listenIndicator = document.createElement('div');
-        listenIndicator.className = 'listen-indicator';
-        voiceMessage.appendChild(listenIndicator);
+    // Всегда добавляем индикатор, но управляем его видимостью через opacity
+    const listenIndicator = document.createElement('div');
+    listenIndicator.className = 'listen-indicator';
+    
+    // Для своих сообщений индикатор всегда видим (если не прослушано)
+    if (isMyMessage) {
+        listenIndicator.style.opacity = message.listened ? '0' : '0.7';
+    } 
+    // Для чужих сообщений индикатор видим только если не прослушано
+    else {
+        listenIndicator.style.opacity = message.listened ? '0' : '0.7';
     }
     
-    // Остальной код функции без изменений
+    voiceMessage.appendChild(listenIndicator);
+    
     const visualization = document.createElement('div');
     visualization.className = 'voice-visualization';
     
@@ -1096,7 +1179,6 @@ function createVoiceMessageElement(message) {
     
     return voiceMessage;
 }
-
 function playVoiceMessage(audioData, voiceMessageElement, duration) {
     // Если это уже текущее сообщение и оно на паузе - возобновляем
     if (currentPlayingVoiceElement === voiceMessageElement && currentPlayingAudio) {
@@ -1161,11 +1243,12 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     const messageElement = voiceMessageElement.closest('.message');
     const isMyMessage = messageElement.classList.contains('my-message');
     
-    // Если это сообщение от текущего пользователя, не скрываем индикатор
+    // Для своих сообщений не меняем состояние индикатора при воспроизведении
     if (isMyMessage) {
         const indicator = voiceMessageElement.querySelector('.listen-indicator');
         if (indicator) {
-            indicator.style.opacity = '0.7'; // Оставляем индикатор видимым
+            // Оставляем индикатор видимым, если сообщение не прослушано
+            indicator.style.opacity = '0.7';
         }
     }
     
@@ -1217,23 +1300,29 @@ function handleVoiceMessagePlayed(voiceMessageElement) {
     timeElement.textContent = `${duration.toFixed(1)} сек.`;
     stopVoiceMessage(voiceMessageElement, true);
     
-    // Получаем информацию о сообщении
     const isMyMessage = messageElement.classList.contains('my-message');
+    const indicator = voiceMessageElement.querySelector('.listen-indicator');
     
-    // Обновляем индикатор только для чужих сообщений
-    if (!isMyMessage) {
-        const indicator = voiceMessageElement.querySelector('.listen-indicator');
-        if (indicator) {
-            indicator.style.opacity = '0';
+    // Для своих сообщений НЕ изменяем состояние индикатора
+    if (!isMyMessage && indicator) {
+        indicator.style.opacity = '0';
+    }
+    
+    // Обновляем состояние в кеше только для чужих сообщений
+    if (!isMyMessage && currentChatUserId && activeChats[currentChatUserId]?.messagesData) {
+        const messageIndex = activeChats[currentChatUserId].messagesData.findIndex(m => m.id === messageId);
+        if (messageIndex !== -1) {
+            activeChats[currentChatUserId].messagesData[messageIndex].listened = true;
         }
     }
     
-    // Отправляем на сервер информацию о прослушивании
+    // Отправляем на сервер информацию о прослушивании (только для чужих сообщений)
     if (messageId && !isMyMessage) {
         const userId = localStorage.getItem('user_id');
         eel.mark_voice_message_as_listened(messageId, userId)();
     }
 }
+
 
 function stopVoiceMessage(voiceMessageElement = null, reset = false) {
     if (!voiceMessageElement) {
