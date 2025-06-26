@@ -517,6 +517,8 @@ def mark_messages_as_read(sender_id, receiver_id):
     except Exception as e:
         logger.error(f"Ошибка пометки сообщений как прочитанных: {e}")
         return {"success": False}
+    
+
 @eel.expose
 def get_last_message(user1_id, user2_id):
     try:

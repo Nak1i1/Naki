@@ -31,6 +31,42 @@ body {
     border-radius: 8px;
 }
 
+.voice-progress {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    background-color: #4CAF50;
+    border-radius: 50%;
+    z-index: 2;
+    transform: translate(-50%, -50%);
+    transition: left 0.1s linear;
+    pointer-events: none;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+}
+
+
+.voice-visualization {
+    position: relative;
+}
+
+.my-message .voice-progress {
+    background-color: #4CAF50;
+}
+
+.their-message .voice-progress {
+    background-color: white;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+}
+
+.voice-visualization-container {
+    position: relative;
+    flex-grow: 1;
+    margin: 0 10px;
+}
+
+
 .right-container {
     flex-grow: 1;
     height: 100%;
@@ -64,6 +100,31 @@ body {
 .avatar-small {
     width: 30px;
     height: 30px;
+}
+
+.voice-visualization {
+    display: flex;
+    align-items: flex-end;
+    height: 30px;
+    gap: 2px;
+    position: relative;
+}
+
+.voice-bar {
+    flex: 1;
+    min-width: 2px;
+    border-radius: 2px;
+    transition: height 0.3s ease;
+    background-color: #4CAF50;
+    opacity: 0.3;
+}
+
+.my-message .voice-bar {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.their-message .voice-bar {
+    background-color: rgba(255, 255, 255, 0.5);
 }
 
 .avatar-medium {
@@ -136,7 +197,19 @@ body {
     cursor: default;
 }
 
+.voice-message.playing .voice-bar {
+    animation: barPulse 1.5s infinite ease-in-out;
+    animation-delay: calc(var(--i) * 0.1s);
+}
 
+@keyframes barPulse {
+    0%, 100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
+}
 
 .user-bar.current-user {
     cursor: pointer; /* Делаем курсор указателем как у других карточек */
@@ -705,14 +778,6 @@ body {
     transition: height 0.1s ease;
 }
 
-.my-message .voice-bar {
-    background-color: rgba(0, 0, 0, 0.2);
-}
-
-.their-message .voice-bar {
-    background-color: rgba(255, 255, 255, 0.5);
-}
-
 .voice-time {
     font-size: 12px;
     color: #666;
@@ -814,9 +879,7 @@ body {
     margin: 5px 0;
 }
 
-.my-message .voice-bar {
-    background-color: rgba(0, 0, 0, 0.2);
-}
+
 
 .my-message .voice-time {
     color: #666;
@@ -838,11 +901,6 @@ body {
     width: 20px;
     height: 20px;
     filter: none !important;
-}
-
-
-.their-message .voice-bar {
-    background-color: rgba(255, 255, 255, 0.7);
 }
 
 .their-message .voice-time {
@@ -967,4 +1025,52 @@ body {
     z-index: 1000;
     display: none;
     font-family: monospace;
+}
+
+/* Контекстное меню для сообщений */
+.message-context-menu {
+    position: fixed;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    width: 180px;
+    overflow: hidden;
+    display: none;
+}
+
+.message-context-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+}
+
+.message-context-item:last-child {
+    border-bottom: none;
+}
+
+.message-context-item:hover {
+    background-color: #f5f5f5;
+}
+
+.message-context-item#message-delete {
+    color: #ff4444;
+}
+
+.message-context-item#message-delete:hover {
+    background-color: #ffeeee;
+}
+
+.edit-message-input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #4CAF50;
+    border-radius: 4px;
+    font-size: 14px;
+    margin: 5px 0;
 }

@@ -66,6 +66,15 @@
         </div>
     </div>
 
+    <div class="message-context-menu hidden" id="message-context-menu">
+        <div class="message-context-item" id="message-reply">Ответить</div>
+        <div class="message-context-item" id="message-edit">Изменить</div>
+        <div class="message-context-item" id="message-pin">Закрепить</div>
+        <div class="message-context-item" id="message-delete">Удалить</div>
+        <div class="message-context-item" id="message-forward">Переслать</div>
+        <div class="message-context-item" id="message-copy">Копировать</div>
+    </div>
+
     <script src="eel.js"></script>
     <script>
         let currentUser = null;
@@ -1005,58 +1014,38 @@ async function loadChatHistory(userId) {
 
         // Функции для работы с голосовыми сообщениями
         async function startRecording(e) {
-            e.preventDefault();
-            
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                recordingStartTime = Date.now();
-                const visualizationData = [];
-                
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(stream);
-                source.connect(analyser);
-                analyser.fftSize = 32;
-                
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) audioChunks.push(e.data);
-                    
-                    // Собираем данные для визуализации
-                    const bufferLength = analyser.frequencyBinCount;
-                    const dataArray = new Uint8Array(bufferLength);
-                    analyser.getByteFrequencyData(dataArray);
-                    
-                    // Нормализуем данные для 20 полосок
-                    const step = Math.floor(bufferLength / 20);
-                    const frameData = [];
-                    for (let i = 0; i < 20; i++) {
-                        frameData.push(dataArray[i * step] / 255);
-                    }
-                    visualizationData.push(frameData);
-                };
-                
-                mediaRecorder.onstop = async () => {
-                    const recordingTime = (Date.now() - recordingStartTime) / 1000;
-                    if (recordingTime < 0.5) {
-                        alert('Сообщение слишком короткое');
-                        return;
-                    }
-                    
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                    await sendVoiceMessage(audioBlob, recordingTime, visualizationData);
-                };
-                
-                mediaRecorder.start(100);
-                document.getElementById('message-input').classList.add('hidden');
-                document.getElementById('recording-container').classList.remove('hidden');
-                updateRecordingTime();
-            } catch (error) {
-                console.error('Ошибка записи:', error);
-                alert('Не удалось получить доступ к микрофону');
+    e.preventDefault();
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        recordingStartTime = Date.now();
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            const recordingTime = (Date.now() - recordingStartTime) / 1000;
+            if (recordingTime < 0.5) {
+                alert('Сообщение слишком короткое');
+                return;
             }
-        }
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            await sendVoiceMessage(audioBlob, recordingTime);
+        };
+        
+        mediaRecorder.start(100);
+        document.getElementById('message-input').classList.add('hidden');
+        document.getElementById('recording-container').classList.remove('hidden');
+        updateRecordingTime();
+    } catch (error) {
+        console.error('Ошибка записи:', error);
+        alert('Не удалось получить доступ к микрофону');
+    }
+}
 
         function stopRecording(e) {
             e.preventDefault();
@@ -1079,7 +1068,7 @@ async function loadChatHistory(userId) {
             }
         }
 
-        async function sendVoiceMessage(audioBlob, duration, visualizationData) {
+        async function sendVoiceMessage(audioBlob, duration, oldVisualizationData = null) {
     if (!currentChatUserId || !audioBlob) return;
     
     try {
@@ -1089,23 +1078,15 @@ async function loadChatHistory(userId) {
         reader.onload = async () => {
             const audioData = reader.result.split(',')[1];
             
-            const finalVisualization = [];
-            if (visualizationData && visualizationData.length > 0) {
-                for (let i = 0; i < 20; i++) {
-                    let sum = 0;
-                    for (const frame of visualizationData) {
-                        sum += frame[i];
-                    }
-                    finalVisualization.push(sum / visualizationData.length);
-                }
-            }
+            // Анализируем аудио и создаем визуализацию
+            const visualizationData = await analyzeAudioAndCreateVisualization(audioBlob, duration);
             
             const result = await eel.send_voice_message(
                 localStorage.getItem('user_id'),
                 currentChatUserId,
                 audioData,
                 duration,
-                finalVisualization
+                visualizationData
             )();
             
             if (result.success) {
@@ -1119,8 +1100,8 @@ async function loadChatHistory(userId) {
                     isVoiceMessage: true,
                     voiceData: audioData,
                     duration: duration,
-                    visualization: finalVisualization,
-                    listened: currentChatUserId === localStorage.getItem('user_id') // Для своих сообщений сразу помечаем как прослушанные
+                    visualization: visualizationData,
+                    listened: currentChatUserId === localStorage.getItem('user_id')
                 };
                 
                 addMessageToChat(message, true, true);
@@ -1140,7 +1121,8 @@ async function loadChatHistory(userId) {
                     voiceData: message.voiceData,
                     duration: message.duration,
                     isVoiceMessage: true,
-                    listened: message.listened
+                    listened: message.listened,
+                    visualization: visualizationData
                 });
                 
                 // Обновляем последнее сообщение на карточке
@@ -1175,33 +1157,49 @@ function createVoiceMessageElement(message) {
     listenIndicator.className = 'listen-indicator';
     
     if (isMyMessage) {
-        // Для своих сообщений индикатор видим только если не прослушано
         listenIndicator.style.opacity = isListened ? '0' : '0.7';
     } else {
-        // Для чужих сообщений индикатор видим только если не прослушано
         listenIndicator.style.opacity = isListened ? '0' : '0.7';
     }
     
     voiceMessage.appendChild(listenIndicator);
     
+    const visualizationContainer = document.createElement('div');
+    visualizationContainer.className = 'voice-visualization-container';
+    
     const visualization = document.createElement('div');
     visualization.className = 'voice-visualization';
     
+    // Получаем данные визуализации из сообщения
     const visualizationData = message.visualization || Array(20).fill(0.3);
-    for (let i = 0; i < 20; i++) {
-        const bar = document.createElement('div');
-        bar.className = 'voice-bar';
-        const height = Math.max(3, visualizationData[i] * 30);
-        bar.style.height = `${height}px`;
-        
-        if (isMyMessage) {
-            bar.style.backgroundColor = `rgba(0, 0, 0, ${0.2 + visualizationData[i] * 0.8})`;
-        } else {
-            bar.style.backgroundColor = `rgba(255, 255, 255, ${0.5 + visualizationData[i] * 0.5})`;
-        }
-        
-        visualization.appendChild(bar);
+    
+    // Создаем полоски визуализации
+// Создаем полоски визуализации
+for (let i = 0; i < 20; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'voice-bar';
+    bar.style.setProperty('--i', i);
+    
+    // Нормализуем значение (0-1) и масштабируем до высоты (3-30px)
+    const height = Math.max(3, visualizationData[i] * 30);
+    bar.style.height = `${height}px`;
+    
+    if (isMyMessage) {
+        bar.style.backgroundColor = `rgba(0, 0, 0, ${0.2 + visualizationData[i] * 0.8})`;
+    } else {
+        bar.style.backgroundColor = `rgba(255, 255, 255, ${0.5 + visualizationData[i] * 0.5})`;
     }
+    
+    visualization.appendChild(bar);
+}
+    
+    // Добавляем ползунок прогресса
+    const progressBar = document.createElement('div');
+    progressBar.className = 'voice-progress';
+    progressBar.style.display = 'none';
+    
+    visualizationContainer.appendChild(visualization);
+    visualizationContainer.appendChild(progressBar);
     
     const time = document.createElement('div');
     time.className = 'voice-time';
@@ -1209,11 +1207,320 @@ function createVoiceMessageElement(message) {
     time.textContent = `${message.duration.toFixed(1)} сек.`;
     
     voiceMessage.appendChild(playBtn);
-    voiceMessage.appendChild(visualization);
+    voiceMessage.appendChild(visualizationContainer);
     voiceMessage.appendChild(time);
     
     return voiceMessage;
 }
+
+// Инициализация контекстного меню для сообщений
+// Инициализация контекстного меню для сообщений
+function initMessageContextMenu() {
+    const messageContextMenu = document.getElementById('message-context-menu');
+    let currentContextMessage = null;
+
+    // Закрытие меню при клике вне его
+    document.addEventListener('click', function(e) {
+        if (!messageContextMenu.contains(e.target)) {
+            messageContextMenu.classList.add('hidden');
+        }
+    });
+
+    // Обработчик правого клика по сообщению
+    document.addEventListener('contextmenu', function(e) {
+        const messageElement = e.target.closest('.message');
+        if (messageElement) {
+            e.preventDefault();
+            currentContextMessage = messageElement;
+            
+            // Проверяем тип сообщения
+            const isVoiceMessage = messageElement.querySelector('.voice-message') !== null;
+            const isMyMessage = messageElement.classList.contains('my-message');
+            
+            // Настраиваем видимость пунктов меню
+            document.getElementById('message-reply').classList.remove('hidden');
+            document.getElementById('message-forward').classList.remove('hidden');
+            document.getElementById('message-copy').classList.remove('hidden');
+            
+            // Показываем пункты редактирования только для своих текстовых сообщений
+            document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
+            document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
+            document.getElementById('message-pin').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
+            
+            // Позиционируем меню
+            const menuWidth = messageContextMenu.offsetWidth;
+            const menuHeight = messageContextMenu.offsetHeight;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            
+            let left = e.clientX;
+            let top = e.clientY;
+            
+            if (left + menuWidth > windowWidth) {
+                left = windowWidth - menuWidth - 5;
+            }
+            
+            if (top + menuHeight > windowHeight) {
+                top = windowHeight - menuHeight - 5;
+            }
+            
+            messageContextMenu.style.left = `${left}px`;
+            messageContextMenu.style.top = `${top}px`;
+            messageContextMenu.classList.remove('hidden');
+        }
+    });
+
+    // Обработчики пунктов меню
+    document.getElementById('message-reply').addEventListener('click', handleReply);
+    document.getElementById('message-edit').addEventListener('click', handleEdit);
+    document.getElementById('message-pin').addEventListener('click', handlePin);
+    document.getElementById('message-delete').addEventListener('click', handleDelete);
+    document.getElementById('message-forward').addEventListener('click', handleForward);
+    document.getElementById('message-copy').addEventListener('click', handleCopy);
+
+    // Настройка видимости пунктов меню
+    function setupContextMenuItems(isMyMessage, isVoiceMessage) {
+        // Пункты, которые показываем всегда
+        const alwaysVisibleItems = [
+            'message-reply',
+            'message-forward',
+            'message-copy'
+        ];
+        
+        // Пункты, которые показываем только для своих текстовых сообщений
+        const myMessageItems = [
+            'message-edit',
+            'message-delete',
+            'message-pin'
+        ];
+        
+        // Сначала скрываем все элементы
+        document.querySelectorAll('.message-context-item').forEach(item => {
+            item.classList.add('hidden');
+        });
+        
+        // Показываем общие пункты
+        alwaysVisibleItems.forEach(id => {
+            document.getElementById(id).classList.remove('hidden');
+        });
+        
+        // Показываем дополнительные пункты для своих сообщений (если не голосовое)
+        if (isMyMessage && !isVoiceMessage) {
+            myMessageItems.forEach(id => {
+                document.getElementById(id).classList.remove('hidden');
+            });
+        }
+    }
+
+    // Позиционирование меню
+    function positionContextMenu(event, menu) {
+        const menuWidth = menu.offsetWidth;
+        const menuHeight = menu.offsetHeight;
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        
+        // Рассчитываем позицию с учетом границ окна
+        let left = event.clientX;
+        let top = event.clientY;
+        
+        if (left + menuWidth > windowWidth) {
+            left = windowWidth - menuWidth - 5;
+        }
+        
+        if (top + menuHeight > windowHeight) {
+            top = windowHeight - menuHeight - 5;
+        }
+        
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    // Обработчики пунктов меню
+    function setupContextMenuHandlers() {
+        document.getElementById('message-reply').addEventListener('click', handleReply);
+        document.getElementById('message-edit').addEventListener('click', handleEdit);
+        document.getElementById('message-pin').addEventListener('click', handlePin);
+        document.getElementById('message-delete').addEventListener('click', handleDelete);
+        document.getElementById('message-forward').addEventListener('click', handleForward);
+        document.getElementById('message-copy').addEventListener('click', handleCopy);
+    }
+
+    // Обработчик "Ответить"
+    async function handleReply() {
+        if (!currentContextMessage) return;
+        
+        try {
+            const messageText = currentContextMessage.querySelector('.message-text').textContent;
+            const messageInput = document.getElementById('message-input');
+            messageInput.value = `Ответ на: "${messageText}" `;
+            messageInput.focus();
+        } catch (error) {
+            console.error('Ошибка при обработке ответа:', error);
+        } finally {
+            messageContextMenu.classList.add('hidden');
+        }
+    }
+
+    // Обработчик "Изменить"
+    async function handleEdit() {
+        if (!currentContextMessage) {
+            messageContextMenu.classList.add('hidden');
+            return;
+        }
+        
+        try {
+            const messageId = currentContextMessage.dataset.id;
+            const messageTextElement = currentContextMessage.querySelector('.message-text');
+            const originalText = messageTextElement.textContent;
+            
+            // Создаем поле ввода для редактирования
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = originalText;
+            input.className = 'edit-message-input';
+            
+            // Заменяем текст на поле ввода
+            messageTextElement.replaceWith(input);
+            input.focus();
+            
+            // Функция завершения редактирования
+            const finishEditing = async (newText) => {
+                if (newText && newText !== originalText) {
+                    const result = await eel.edit_message(messageId, newText)();
+                    if (!result.success) {
+                        throw new Error(result.message || 'Не удалось изменить сообщение');
+                    }
+                    return newText;
+                }
+                return originalText;
+            };
+            
+            // Обработчики событий
+            const handleKeyDown = async (e) => {
+                if (e.key === 'Enter') {
+                    const newText = input.value.trim();
+                    try {
+                        const finalText = await finishEditing(newText);
+                        messageTextElement.textContent = finalText;
+                    } catch (error) {
+                        alert(error.message);
+                        messageTextElement.textContent = originalText;
+                    }
+                    cleanup();
+                } else if (e.key === 'Escape') {
+                    messageTextElement.textContent = originalText;
+                    cleanup();
+                }
+            };
+            
+            const handleBlur = async () => {
+                const newText = input.value.trim();
+                try {
+                    const finalText = await finishEditing(newText);
+                    messageTextElement.textContent = finalText;
+                } catch (error) {
+                    alert(error.message);
+                    messageTextElement.textContent = originalText;
+                }
+                cleanup();
+            };
+            
+            const cleanup = () => {
+                input.replaceWith(messageTextElement);
+                input.removeEventListener('keydown', handleKeyDown);
+                input.removeEventListener('blur', handleBlur);
+                messageContextMenu.classList.add('hidden');
+            };
+            
+            input.addEventListener('keydown', handleKeyDown);
+            input.addEventListener('blur', handleBlur);
+            
+        } catch (error) {
+            console.error('Ошибка при редактировании:', error);
+            alert('Ошибка при редактировании сообщения');
+            messageContextMenu.classList.add('hidden');
+        }
+    }
+
+    // Обработчик "Закрепить"
+    function handlePin() {
+        alert('Функция "Закрепить" будет реализована в будущем');
+        messageContextMenu.classList.add('hidden');
+    }
+
+    // Обработчик "Удалить"
+    async function handleDelete() {
+        if (!currentContextMessage) {
+            messageContextMenu.classList.add('hidden');
+            return;
+        }
+        
+        if (!confirm('Вы уверены, что хотите удалить это сообщение?')) {
+            messageContextMenu.classList.add('hidden');
+            return;
+        }
+        
+        try {
+            const messageId = currentContextMessage.dataset.id;
+            const result = await eel.delete_message(messageId)();
+            
+            if (result.success) {
+                currentContextMessage.remove();
+            } else {
+                throw new Error(result.message || 'Не удалось удалить сообщение');
+            }
+        } catch (error) {
+            console.error('Ошибка при удалении:', error);
+            alert(error.message || 'Ошибка при удалении сообщения');
+        } finally {
+            messageContextMenu.classList.add('hidden');
+        }
+    }
+
+    // Обработчик "Переслать"
+    function handleForward() {
+        alert('Функция "Переслать" будет реализована в будущем');
+        messageContextMenu.classList.add('hidden');
+    }
+
+    // Обработчик "Копировать"
+    function handleCopy() {
+        if (!currentContextMessage) {
+            messageContextMenu.classList.add('hidden');
+            return;
+        }
+        
+        try {
+            const messageText = currentContextMessage.querySelector('.message-text').textContent;
+            navigator.clipboard.writeText(messageText)
+                .then(() => {
+                    // Можно добавить визуальное подтверждение копирования
+                    console.log('Текст скопирован в буфер обмена');
+                })
+                .catch(err => {
+                    console.error('Ошибка копирования:', err);
+                    alert('Не удалось скопировать текст');
+                });
+        } catch (error) {
+            console.error('Ошибка при копировании:', error);
+            alert('Ошибка при копировании текста');
+        } finally {
+            messageContextMenu.classList.add('hidden');
+        }
+    }
+
+    // Инициализация обработчиков
+    setupContextMenuHandlers();
+}
+
+// Вызов инициализации после загрузки DOM
+document.addEventListener('DOMContentLoaded', function() {
+    // ... другой код инициализации ...
+    
+    initMessageContextMenu();
+    
+    // ... остальной код ...
+});
 
 function playVoiceMessage(audioData, voiceMessageElement, duration) {
     // Если это уже текущее сообщение и оно на паузе - возобновляем
@@ -1226,24 +1533,43 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
             const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
             playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
             
+            const progressBar = voiceMessageElement.querySelector('.voice-progress');
+            progressBar.style.display = 'block';
+            
             const timeElement = voiceMessageElement.querySelector('.voice-time');
             const startTime = Date.now() - (currentTime * 1000);
             
-            const updateTime = () => {
+            // Функция обновления прогресса
+            const updateProgress = () => {
                 if (!voiceMessagePlaying) return;
                 
-                const elapsed = (Date.now() - startTime) / 1000;
-                const currentPos = Math.min(elapsed, duration);
+                const currentPos = currentPlayingAudio.currentTime;
+                const progressPercent = (currentPos / duration) * 100;
+                
+                // Обновляем позицию ползунка
+                progressBar.style.left = `${progressPercent}%`;
+                
+                // Обновляем анимацию полосок
+                const bars = voiceMessageElement.querySelectorAll('.voice-bar');
+                bars.forEach((bar, i) => {
+                    const barPos = (i / bars.length) * 100;
+                    if (barPos < progressPercent) {
+                        bar.style.opacity = '0.7';
+                    } else {
+                        bar.style.opacity = '0.3';
+                    }
+                });
+                
                 timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
                 
                 if (currentPos >= duration) {
                     handleVoiceMessagePlayed(voiceMessageElement);
                 } else if (voiceMessagePlaying) {
-                    requestAnimationFrame(updateTime);
+                    requestAnimationFrame(updateProgress);
                 }
             };
             
-            updateTime();
+            updateProgress();
         }).catch(error => {
             console.error('Ошибка возобновления:', error);
         });
@@ -1271,34 +1597,44 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
     playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
     
+    const progressBar = voiceMessageElement.querySelector('.voice-progress');
+    progressBar.style.display = 'block';
+    progressBar.style.left = '0%';
+    
     const timeElement = voiceMessageElement.querySelector('.voice-time');
     timeElement.dataset.duration = duration;
-    timeElement.textContent = `${duration.toFixed(1)} сек.`;
     
     // Получаем родительский элемент сообщения
     const messageElement = voiceMessageElement.closest('.message');
     const isMyMessage = messageElement.classList.contains('my-message');
     
-    // Для своих сообщений не меняем состояние индикатора при воспроизведении
-    if (isMyMessage) {
-        const indicator = voiceMessageElement.querySelector('.listen-indicator');
-        if (indicator) {
-            // Оставляем индикатор видимым, если сообщение не прослушано
-            indicator.style.opacity = '0.7';
-        }
-    }
-    
-    // Функция обновления времени
-    const updateTime = () => {
+    // Функция обновления прогресса
+    const updateProgress = () => {
         if (!voiceMessagePlaying) return;
         
         const currentPos = audio.currentTime;
+        const progressPercent = (currentPos / duration) * 100;
+        
+        // Обновляем позицию ползунка
+        progressBar.style.left = `${progressPercent}%`;
+        
+        // Обновляем анимацию полосок
+        const bars = voiceMessageElement.querySelectorAll('.voice-bar');
+        bars.forEach((bar, i) => {
+            const barPos = (i / bars.length) * 100;
+            if (barPos < progressPercent) {
+                bar.style.opacity = '0.7';
+            } else {
+                bar.style.opacity = '0.3';
+            }
+        });
+        
         timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
         
         if (currentPos >= duration) {
             handleVoiceMessagePlayed(voiceMessageElement);
         } else if (voiceMessagePlaying) {
-            requestAnimationFrame(updateTime);
+            requestAnimationFrame(updateProgress);
         }
     };
         
@@ -1309,8 +1645,14 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     
     audio.addEventListener('pause', () => {
         voiceMessagePlaying = false;
+        // При паузе сохраняем текущее состояние прогресса
         const currentTime = audio.currentTime;
+        const progressPercent = (currentTime / duration) * 100;
+        progressBar.style.left = `${progressPercent}%`;
         timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        
+        // Меняем иконку на "play"
+        playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
     });
     
     audio.addEventListener('error', () => {
@@ -1320,7 +1662,7 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     
     // Запускаем воспроизведение
     audio.play().then(() => {
-        updateTime();
+        updateProgress();
     }).catch(error => {
         console.error('Ошибка воспроизведения:', error);
         stopVoiceMessage(voiceMessageElement, true);
@@ -1332,6 +1674,10 @@ function handleVoiceMessagePlayed(voiceMessageElement) {
     const messageId = messageElement?.dataset.id;
     const timeElement = voiceMessageElement.querySelector('.voice-time');
     const duration = parseFloat(timeElement.dataset.duration) || 0;
+    
+    // Скрываем ползунок
+    const progressBar = voiceMessageElement.querySelector('.voice-progress');
+    progressBar.style.display = 'none';
     
     timeElement.textContent = `${duration.toFixed(1)} сек.`;
     stopVoiceMessage(voiceMessageElement, true);
@@ -1366,6 +1712,211 @@ function handleVoiceMessagePlayed(voiceMessageElement) {
     }
 }
 
+async function analyzeAudioAndCreateVisualization(audioBlob, duration) {
+    try {
+        // Создаем аудиоконтекст
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        
+        // Получаем данные канала (берем первый канал)
+        const channelData = audioBuffer.getChannelData(0);
+        const sampleRate = audioBuffer.sampleRate;
+        
+        // Количество полосок
+        const barsCount = 20;
+        // Длительность одного сегмента в секундах
+        const segmentDuration = duration / barsCount;
+        // Количество семплов в одном сегменте
+        const samplesPerSegment = Math.floor(segmentDuration * sampleRate);
+        
+        const visualizationData = [];
+        
+        // Анализируем каждый сегмент
+        for (let i = 0; i < barsCount; i++) {
+            const startSample = i * samplesPerSegment;
+            const endSample = Math.min((i + 1) * samplesPerSegment, channelData.length);
+            
+            let maxAmplitude = 0;
+            
+            // Находим максимальную амплитуду в сегменте
+            for (let j = startSample; j < endSample; j++) {
+                const amplitude = Math.abs(channelData[j]);
+                if (amplitude > maxAmplitude) {
+                    maxAmplitude = amplitude;
+                }
+            }
+            
+            // Нормализуем значение от 0 до 1
+            visualizationData.push(maxAmplitude);
+        }
+        
+        return visualizationData;
+    } catch (error) {
+        console.error('Ошибка анализа аудио:', error);
+        // Возвращаем массив нулей в случае ошибки
+        return Array(20).fill(0);
+    }
+}
+
+// Инициализация контекстного меню для сообщений
+const messageContextMenu = document.getElementById('message-context-menu');
+let currentContextMessage = null;
+
+document.addEventListener('click', () => {
+    messageContextMenu.classList.add('hidden');
+});
+
+// Обработчик контекстного меню для сообщений
+document.addEventListener('contextmenu', function(e) {
+    const messageElement = e.target.closest('.message');
+    if (messageElement && !messageElement.querySelector('.voice-message')) {
+        e.preventDefault();
+        currentContextMessage = messageElement;
+        
+        // Показываем меню только для своих сообщений (кроме кнопок "Копировать" и "Ответить")
+        const isMyMessage = messageElement.classList.contains('my-message');
+        
+        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage);
+        document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
+        document.getElementById('message-pin').classList.toggle('hidden', !isMyMessage);
+        
+        // Позиционируем меню
+        const x = e.clientX;
+        const y = e.clientY;
+        
+        messageContextMenu.style.left = `${x}px`;
+        messageContextMenu.style.top = `${y}px`;
+        messageContextMenu.classList.remove('hidden');
+    }
+});
+
+// Обработчики для пунктов меню
+document.getElementById('message-reply').addEventListener('click', () => {
+    if (currentContextMessage) {
+        const messageText = currentContextMessage.querySelector('.message-text').textContent;
+        const messageInput = document.getElementById('message-input');
+        messageInput.value = `Ответ на: "${messageText}" `;
+        messageInput.focus();
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+document.getElementById('message-edit').addEventListener('click', async () => {
+    if (currentContextMessage) {
+        const messageId = currentContextMessage.dataset.id;
+        const messageText = currentContextMessage.querySelector('.message-text');
+        const originalText = messageText.textContent;
+        
+        // Создаем поле ввода для редактирования
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = originalText;
+        input.className = 'edit-message-input';
+        
+        // Заменяем текст на поле ввода
+        messageText.replaceWith(input);
+        input.focus();
+        
+        // Обработчик завершения редактирования
+        const handleEdit = async (e) => {
+            if (e.key === 'Enter' || e.type === 'blur') {
+                const newText = input.value.trim();
+                if (newText && newText !== originalText) {
+                    try {
+                        const result = await eel.edit_message(messageId, newText)();
+                        if (result.success) {
+                            messageText.textContent = newText;
+                        } else {
+                            alert(result.message);
+                            messageText.textContent = originalText;
+                        }
+                    } catch (error) {
+                        console.error('Ошибка редактирования:', error);
+                        messageText.textContent = originalText;
+                    }
+                } else {
+                    messageText.textContent = originalText;
+                }
+                
+                input.replaceWith(messageText);
+                input.removeEventListener('keydown', handleEdit);
+                input.removeEventListener('blur', handleEdit);
+            } else if (e.key === 'Escape') {
+                messageText.textContent = originalText;
+                input.replaceWith(messageText);
+                input.removeEventListener('keydown', handleEdit);
+                input.removeEventListener('blur', handleEdit);
+            }
+        };
+        
+        input.addEventListener('keydown', handleEdit);
+        input.addEventListener('blur', handleEdit);
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+document.getElementById('message-pin').addEventListener('click', () => {
+    if (currentContextMessage) {
+        alert('Функция "Закрепить" будет реализована в будущем');
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+document.getElementById('message-delete').addEventListener('click', async () => {
+    if (currentContextMessage) {
+        if (confirm('Вы уверены, что хотите удалить это сообщение?')) {
+            const messageId = currentContextMessage.dataset.id;
+            try {
+                const result = await eel.delete_message(messageId)();
+                if (result.success) {
+                    currentContextMessage.remove();
+                } else {
+                    alert(result.message);
+                }
+            } catch (error) {
+                console.error('Ошибка удаления:', error);
+                alert('Ошибка при удалении сообщения');
+            }
+        }
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+document.getElementById('message-forward').addEventListener('click', () => {
+    if (currentContextMessage) {
+        alert('Функция "Переслать" будет реализована в будущем');
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+document.getElementById('message-copy').addEventListener('click', () => {
+    if (currentContextMessage) {
+        const messageText = currentContextMessage.querySelector('.message-text').textContent;
+        navigator.clipboard.writeText(messageText)
+            .then(() => {
+                // Можно добавить уведомление о успешном копировании
+                console.log('Текст скопирован');
+            })
+            .catch(err => {
+                console.error('Ошибка копирования:', err);
+            });
+    }
+    messageContextMenu.classList.add('hidden');
+});
+
+// Стиль для поля редактирования
+const style = document.createElement('style');
+style.textContent = `
+    .edit-message-input {
+        width: 100%;
+        padding: 5px;
+        border: 1px solid #4CAF50;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+`;
+document.head.appendChild(style);  
 
 function stopVoiceMessage(voiceMessageElement = null, reset = false) {
     if (!voiceMessageElement) {
@@ -1388,12 +1939,18 @@ function stopVoiceMessage(voiceMessageElement = null, reset = false) {
         
         const timeElement = voiceMessageElement.querySelector('.voice-time');
         const duration = parseFloat(timeElement.dataset.duration) || 0;
+        const progressBar = voiceMessageElement.querySelector('.voice-progress');
         
         if (reset) {
+            progressBar.style.display = 'none';
             timeElement.textContent = `${duration.toFixed(1)} сек.`;
             currentPlayingVoiceElement = null;
         } else {
-            timeElement.textContent = `${Math.min(currentPlayingAudio?.currentTime || 0, duration).toFixed(1)} / ${duration.toFixed(1)} сек.`;
+            // При паузе сохраняем текущее состояние прогресса
+            const currentTime = currentPlayingAudio?.currentTime || 0;
+            const progressPercent = (currentTime / duration) * 100;
+            progressBar.style.left = `${progressPercent}%`;
+            timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
         }
     }
 }
