@@ -95,6 +95,7 @@
         let currentPlayingAudio = null;
         let voiceMessagePlaying = false;
         let currentPlayingVoiceElement = null;
+        let currentContextMessage = null; 
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -1214,14 +1215,14 @@ for (let i = 0; i < 20; i++) {
 }
 
 // Инициализация контекстного меню для сообщений
-// Инициализация контекстного меню для сообщений
 function initMessageContextMenu() {
+    console.log('initMessageContextMenu вызвана');
     const messageContextMenu = document.getElementById('message-context-menu');
     let currentContextMessage = null;
 
     // Закрытие меню при клике вне его
     document.addEventListener('click', function(e) {
-        if (!messageContextMenu.contains(e.target)) {
+        if (messageContextMenu && !messageContextMenu.contains(e.target)) {
             messageContextMenu.classList.add('hidden');
         }
     });
@@ -1231,21 +1232,20 @@ function initMessageContextMenu() {
         const messageElement = e.target.closest('.message');
         if (messageElement) {
             e.preventDefault();
+            console.log('Правый клик по сообщению');
             currentContextMessage = messageElement;
             
             // Проверяем тип сообщения
             const isVoiceMessage = messageElement.querySelector('.voice-message') !== null;
             const isMyMessage = messageElement.classList.contains('my-message');
             
-            // Настраиваем видимость пунктов меню
-            document.getElementById('message-reply').classList.remove('hidden');
-            document.getElementById('message-forward').classList.remove('hidden');
-            document.getElementById('message-copy').classList.remove('hidden');
-            
-            // Показываем пункты редактирования только для своих текстовых сообщений
+            // Показываем/скрываем пункты меню в зависимости от типа сообщения
             document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
             document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
             document.getElementById('message-pin').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
+            document.getElementById('message-reply').classList.toggle('hidden', false);
+            document.getElementById('message-forward').classList.toggle('hidden', false);
+            document.getElementById('message-copy').classList.toggle('hidden', false);
             
             // Позиционируем меню
             const menuWidth = messageContextMenu.offsetWidth;
@@ -1256,6 +1256,7 @@ function initMessageContextMenu() {
             let left = e.clientX;
             let top = e.clientY;
             
+            // Проверяем, чтобы меню не выходило за границы экрана
             if (left + menuWidth > windowWidth) {
                 left = windowWidth - menuWidth - 5;
             }
@@ -1266,7 +1267,11 @@ function initMessageContextMenu() {
             
             messageContextMenu.style.left = `${left}px`;
             messageContextMenu.style.top = `${top}px`;
+            messageContextMenu.style.display = 'block'; // Явно показываем меню
             messageContextMenu.classList.remove('hidden');
+            
+            // Убедимся, что меню поверх других элементов
+            messageContextMenu.style.zIndex = '1000';
         }
     });
 
@@ -1278,75 +1283,7 @@ function initMessageContextMenu() {
     document.getElementById('message-forward').addEventListener('click', handleForward);
     document.getElementById('message-copy').addEventListener('click', handleCopy);
 
-    // Настройка видимости пунктов меню
-    function setupContextMenuItems(isMyMessage, isVoiceMessage) {
-        // Пункты, которые показываем всегда
-        const alwaysVisibleItems = [
-            'message-reply',
-            'message-forward',
-            'message-copy'
-        ];
-        
-        // Пункты, которые показываем только для своих текстовых сообщений
-        const myMessageItems = [
-            'message-edit',
-            'message-delete',
-            'message-pin'
-        ];
-        
-        // Сначала скрываем все элементы
-        document.querySelectorAll('.message-context-item').forEach(item => {
-            item.classList.add('hidden');
-        });
-        
-        // Показываем общие пункты
-        alwaysVisibleItems.forEach(id => {
-            document.getElementById(id).classList.remove('hidden');
-        });
-        
-        // Показываем дополнительные пункты для своих сообщений (если не голосовое)
-        if (isMyMessage && !isVoiceMessage) {
-            myMessageItems.forEach(id => {
-                document.getElementById(id).classList.remove('hidden');
-            });
-        }
-    }
-
-    // Позиционирование меню
-    function positionContextMenu(event, menu) {
-        const menuWidth = menu.offsetWidth;
-        const menuHeight = menu.offsetHeight;
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-        
-        // Рассчитываем позицию с учетом границ окна
-        let left = event.clientX;
-        let top = event.clientY;
-        
-        if (left + menuWidth > windowWidth) {
-            left = windowWidth - menuWidth - 5;
-        }
-        
-        if (top + menuHeight > windowHeight) {
-            top = windowHeight - menuHeight - 5;
-        }
-        
-        menu.style.left = `${left}px`;
-        menu.style.top = `${top}px`;
-    }
-
-    // Обработчики пунктов меню
-    function setupContextMenuHandlers() {
-        document.getElementById('message-reply').addEventListener('click', handleReply);
-        document.getElementById('message-edit').addEventListener('click', handleEdit);
-        document.getElementById('message-pin').addEventListener('click', handlePin);
-        document.getElementById('message-delete').addEventListener('click', handleDelete);
-        document.getElementById('message-forward').addEventListener('click', handleForward);
-        document.getElementById('message-copy').addEventListener('click', handleCopy);
-    }
-
-    // Обработчик "Ответить"
-    async function handleReply() {
+    function handleReply() {
         if (!currentContextMessage) return;
         
         try {
@@ -1361,8 +1298,7 @@ function initMessageContextMenu() {
         }
     }
 
-    // Обработчик "Изменить"
-    async function handleEdit() {
+    function handleEdit() {
         if (!currentContextMessage) {
             messageContextMenu.classList.add('hidden');
             return;
@@ -1442,48 +1378,64 @@ function initMessageContextMenu() {
         }
     }
 
-    // Обработчик "Закрепить"
     function handlePin() {
         alert('Функция "Закрепить" будет реализована в будущем');
         messageContextMenu.classList.add('hidden');
     }
 
-    // Обработчик "Удалить"
-    async function handleDelete() {
-        if (!currentContextMessage) {
-            messageContextMenu.classList.add('hidden');
-            return;
-        }
-        
-        if (!confirm('Вы уверены, что хотите удалить это сообщение?')) {
-            messageContextMenu.classList.add('hidden');
-            return;
-        }
-        
-        try {
-            const messageId = currentContextMessage.dataset.id;
-            const result = await eel.delete_message(messageId)();
-            
-            if (result.success) {
-                currentContextMessage.remove();
-            } else {
-                throw new Error(result.message || 'Не удалось удалить сообщение');
-            }
-        } catch (error) {
-            console.error('Ошибка при удалении:', error);
-            alert(error.message || 'Ошибка при удалении сообщения');
-        } finally {
-            messageContextMenu.classList.add('hidden');
-        }
-    }
+    eel.expose(get_current_user_id);
+function get_current_user_id() {
+    return localStorage.getItem('user_id');
+}
 
-    // Обработчик "Переслать"
+
+    async function handleDelete() {
+    if (!currentContextMessage) {
+        messageContextMenu.classList.add('hidden');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите удалить это сообщение?')) {
+        messageContextMenu.classList.add('hidden');
+        return;
+    }
+    
+    try {
+        const messageId = currentContextMessage.dataset.id;
+        const result = await eel.delete_message(messageId)();
+        
+        if (result.success) {
+            currentContextMessage.remove();
+            
+            // Обновляем кеш активных чатов
+            if (currentChatUserId && activeChats[currentChatUserId]) {
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                
+                // Удаляем сообщение из messagesData если оно там есть
+                if (activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = 
+                        activeChats[currentChatUserId].messagesData.filter(m => m.id !== messageId);
+                }
+            }
+        } else {
+            alert(result.message || 'Не удалось удалить сообщение');
+        }
+    } catch (error) {
+        console.error('Ошибка при удалении:', error);
+        alert('Ошибка при удалении сообщения');
+    } finally {
+        messageContextMenu.classList.add('hidden');
+    }
+}
+
+
+
     function handleForward() {
         alert('Функция "Переслать" будет реализована в будущем');
         messageContextMenu.classList.add('hidden');
     }
 
-    // Обработчик "Копировать"
     function handleCopy() {
         if (!currentContextMessage) {
             messageContextMenu.classList.add('hidden');
@@ -1494,7 +1446,6 @@ function initMessageContextMenu() {
             const messageText = currentContextMessage.querySelector('.message-text').textContent;
             navigator.clipboard.writeText(messageText)
                 .then(() => {
-                    // Можно добавить визуальное подтверждение копирования
                     console.log('Текст скопирован в буфер обмена');
                 })
                 .catch(err => {
@@ -1508,18 +1459,11 @@ function initMessageContextMenu() {
             messageContextMenu.classList.add('hidden');
         }
     }
-
-    // Инициализация обработчиков
-    setupContextMenuHandlers();
 }
 
 // Вызов инициализации после загрузки DOM
 document.addEventListener('DOMContentLoaded', function() {
-    // ... другой код инициализации ...
-    
     initMessageContextMenu();
-    
-    // ... остальной код ...
 });
 
 function playVoiceMessage(audioData, voiceMessageElement, duration) {
@@ -1759,37 +1703,7 @@ async function analyzeAudioAndCreateVisualization(audioBlob, duration) {
     }
 }
 
-// Инициализация контекстного меню для сообщений
-const messageContextMenu = document.getElementById('message-context-menu');
-let currentContextMessage = null;
 
-document.addEventListener('click', () => {
-    messageContextMenu.classList.add('hidden');
-});
-
-// Обработчик контекстного меню для сообщений
-document.addEventListener('contextmenu', function(e) {
-    const messageElement = e.target.closest('.message');
-    if (messageElement && !messageElement.querySelector('.voice-message')) {
-        e.preventDefault();
-        currentContextMessage = messageElement;
-        
-        // Показываем меню только для своих сообщений (кроме кнопок "Копировать" и "Ответить")
-        const isMyMessage = messageElement.classList.contains('my-message');
-        
-        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage);
-        document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
-        document.getElementById('message-pin').classList.toggle('hidden', !isMyMessage);
-        
-        // Позиционируем меню
-        const x = e.clientX;
-        const y = e.clientY;
-        
-        messageContextMenu.style.left = `${x}px`;
-        messageContextMenu.style.top = `${y}px`;
-        messageContextMenu.classList.remove('hidden');
-    }
-});
 
 // Обработчики для пунктов меню
 document.getElementById('message-reply').addEventListener('click', () => {

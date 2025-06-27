@@ -119,6 +119,16 @@ def get_all_users():
 @eel.expose
 def delete_message(message_id):
     try:
+        # Сначала получаем сообщение, чтобы проверить права
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if not message:
+            return {"success": False, "message": "Сообщение не найдено"}
+        
+        # Проверяем, что удаляет отправитель
+        current_user_id = ObjectId(eel.get_current_user_id()())  # Нужно добавить эту функцию
+        if message["sender_id"] != current_user_id:
+            return {"success": False, "message": "Вы можете удалять только свои сообщения"}
+        
         result = messages_collection.delete_one({"_id": ObjectId(message_id)})
         
         if result.deleted_count > 0:
@@ -517,6 +527,15 @@ def mark_messages_as_read(sender_id, receiver_id):
     except Exception as e:
         logger.error(f"Ошибка пометки сообщений как прочитанных: {e}")
         return {"success": False}
+    
+@eel.expose
+def get_current_user_id():
+    # Эта функция должна возвращать ID текущего пользователя из сессии
+    # В реальном приложении это может быть из токена или сессии
+    # В нашем случае можно использовать последнего авторизованного пользователя
+    # Это временное решение, в продакшене нужно использовать сессии/токены
+    from flask import request
+    return request.cookies.get('user_id') or ''
     
 
 @eel.expose
