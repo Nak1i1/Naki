@@ -1221,10 +1221,10 @@ for (let i = 0; i < 20; i++) {
     return voiceMessage;
 }
 
-// Инициализация контекстного меню для сообщений
 function initMessageContextMenu() {
     console.log('initMessageContextMenu вызвана');
     const messageContextMenu = document.getElementById('message-context-menu');
+    window.messageContextMenu = messageContextMenu; // Делаем глобальной для доступа из других функций
     let currentContextMessage = null;
 
     // Закрытие меню при клике вне его
@@ -1274,7 +1274,7 @@ function initMessageContextMenu() {
             
             messageContextMenu.style.left = `${left}px`;
             messageContextMenu.style.top = `${top}px`;
-            messageContextMenu.style.display = 'block'; // Явно показываем меню
+            messageContextMenu.style.display = 'block';
             messageContextMenu.classList.remove('hidden');
             
             // Убедимся, что меню поверх других элементов
@@ -1282,47 +1282,74 @@ function initMessageContextMenu() {
         }
     });
 
+    // Общая функция для закрытия меню
+    function closeMessageContextMenu() {
+        if (messageContextMenu) {
+            messageContextMenu.classList.add('hidden');
+        }
+    }
+
     // Обработчики пунктов меню
-    document.getElementById('message-reply').addEventListener('click', handleReply);
-    document.getElementById('message-edit').addEventListener('click', handleEdit);
-    document.getElementById('message-pin').addEventListener('click', handlePin);
-    document.getElementById('message-delete').addEventListener('click', handleDelete);
-    document.getElementById('message-forward').addEventListener('click', handleForward);
-    document.getElementById('message-copy').addEventListener('click', handleCopy);
+    document.getElementById('message-reply').addEventListener('click', function() {
+        handleReply();
+        closeMessageContextMenu();
+    });
+    
+    document.getElementById('message-edit').addEventListener('click', function() {
+        handleEdit();
+        closeMessageContextMenu();
+    });
+    
+    document.getElementById('message-pin').addEventListener('click', function() {
+        handlePin();
+        closeMessageContextMenu();
+    });
+    
+    document.getElementById('message-delete').addEventListener('click', function() {
+        handleDelete();
+        closeMessageContextMenu();
+    });
+    
+    document.getElementById('message-forward').addEventListener('click', function() {
+        handleForward();
+        closeMessageContextMenu();
+    });
+    
+    document.getElementById('message-copy').addEventListener('click', function() {
+        handleCopy();
+        closeMessageContextMenu();
+    });
 
     function handleReply() {
-    if (!currentContextMessage) {
-        document.getElementById('reply-container').classList.add('hidden');
-        return;
+        if (!currentContextMessage) return;
+        
+        try {
+            const messageText = currentContextMessage.querySelector('.message-text').textContent;
+            const isMyMessage = currentContextMessage.classList.contains('my-message');
+            const replyContainer = document.getElementById('reply-container');
+            
+            replyContainer.innerHTML = `
+                <div class="reply-header">
+                    <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
+                    <div class="reply-close">×</div>
+                </div>
+                <div class="reply-text">${messageText}</div>
+            `;
+            
+            replyContainer.classList.remove('hidden');
+            
+            // Обработчик закрытия ответа - теперь просто скрываем контейнер
+            replyContainer.querySelector('.reply-close').addEventListener('click', () => {
+                replyContainer.classList.add('hidden');
+            });
+            
+            const messageInput = document.getElementById('message-input');
+            messageInput.focus();
+            
+        } catch (error) {
+            console.error('Ошибка при обработке ответа:', error);
+        }
     }
-    
-    try {
-        const messageText = currentContextMessage.querySelector('.message-text').textContent;
-        const isMyMessage = currentContextMessage.classList.contains('my-message');
-        const replyContainer = document.getElementById('reply-container');
-        
-        replyContainer.innerHTML = `
-            <div class="reply-header">
-                <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
-                <div class="reply-close">×</div>
-            </div>
-            <div class="reply-text">${messageText}</div>
-        `;
-        
-        replyContainer.classList.remove('hidden');
-        
-        // Обработчик закрытия ответа
-        replyContainer.querySelector('.reply-close').addEventListener('click', () => {
-            replyContainer.classList.add('hidden');
-        });
-        
-        const messageInput = document.getElementById('message-input');
-        messageInput.focus();
-        
-    } catch (error) {
-        console.error('Ошибка при обработке ответа:', error);
-    }
-}
 
     function handleEdit() {
         if (!currentContextMessage) {
