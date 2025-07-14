@@ -241,17 +241,10 @@
                 }
             });
             
-            document.getElementById('message-input').addEventListener('keypress', async function(e) {
+document.getElementById('message-input').addEventListener('keypress', async function(e) {
     if (e.key === 'Enter' && this.value.trim()) {
         await sendMessage(this.value.trim());
         this.value = '';
-        
-        // Удаляем контейнер ответа после отправки
-        const replyContainer = document.querySelector('.reply-container');
-        if (replyContainer) {
-            replyContainer.remove();
-            document.querySelector('.message-input-container').classList.remove('expanded');
-        }
     }
 });
 
@@ -638,46 +631,61 @@ async function loadChatHistory(userId) {
         console.error('Error loading chat history:', error);
     }
 }
-        async function sendMessage(text) {
-            if (!currentChatUserId || !text) return;
+async function sendMessage(text) {
+    if (!currentChatUserId || !text) return;
+    
+    try {
+        const replyContainer = document.getElementById('reply-container');
+        const isReplying = !replyContainer.classList.contains('hidden');
+        const replyToId = isReplying ? replyContainer.dataset.messageId : null;
+        
+        const result = await eel.send_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            text,
+            replyToId
+        )();
+        
+        if (result.success) {
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: text,
+                timestamp: result.timestamp,
+                read: result.read,
+                reply_to: result.reply_to,
+                reply_text: result.reply_text,
+                reply_sender_id: result.reply_sender_id
+            };
             
-            try {
-                const result = await eel.send_message(
-                    localStorage.getItem('user_id'),
-                    currentChatUserId,
-                    text
-                )();
-                
-                if (result.success) {
-                    const message = {
-                        id: result.message_id,
-                        sender_id: localStorage.getItem('user_id'),
-                        receiver_id: currentChatUserId,
-                        text: text,
-                        timestamp: result.timestamp,
-                        read: result.read
-                    };
-                    
-                    addMessageToChat(message, true, true);
-                    lastMessageId = message.id;
-                    
-                    if (activeChats[currentChatUserId]) {
-                        const messagesContainer = document.getElementById('chat-messages');
-                        activeChats[currentChatUserId] = {
-                            messages: messagesContainer.innerHTML,
-                            lastMessageId: lastMessageId
-                        };
-                    }
-                    
-                    // Обновляем последнее сообщение на карточке пользователя
-                    updateLastMessageOnUserCard(currentChatUserId, text, true);
-                } else {
-                    console.error("Ошибка при отправке:", result.message);
-                }
-            } catch (error) {
-                console.error('Error sending message:', error);
+            addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            if (activeChats[currentChatUserId]) {
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId] = {
+                    messages: messagesContainer.innerHTML,
+                    lastMessageId: lastMessageId
+                };
             }
+            
+            // Обновляем последнее сообщение на карточке пользователя
+            updateLastMessageOnUserCard(currentChatUserId, text, true);
+            
+            // Сбрасываем контейнер ответа
+            if (replyContainer) {
+                replyContainer.classList.add('hidden');
+                replyContainer.innerHTML = '';
+                document.querySelector('.message-input-container').classList.remove('expanded');
+            }
+        } else {
+            console.error("Ошибка при отправке:", result.message);
         }
+    } catch (error) {
+        console.error('Error sending message:', error);
+    }
+}
 
         function updateLastMessageOnUserCard(userId, messageText, isMyMessage) {
             const userCard = document.querySelector(`.user-bar[data-user-id="${userId}"]`);
@@ -718,7 +726,7 @@ async function loadChatHistory(userId) {
             }
         }
 
-        function addMessageToChat(message, isMyMessage, isNewMessage = true) {
+function addMessageToChat(message, isMyMessage, isNewMessage = true) {
     const messagesContainer = document.getElementById('chat-messages');
     
     if (messagesContainer.querySelector('.no-messages')) {
@@ -729,7 +737,7 @@ async function loadChatHistory(userId) {
     
     if (!messageElement) {
         messageElement = document.createElement('div');
-        messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
+        messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'} ${message.reply_to ? 'with-reply' : ''}`;
         messageElement.dataset.id = message.id;
         
         const date = new Date(message.timestamp);
@@ -745,16 +753,44 @@ async function loadChatHistory(userId) {
                 if (indicator) indicator.style.opacity = '0';
             }
         } else {
-            messageElement.innerHTML = `
+            let messageContent = '';
+            
+            // Если есть reply_to, добавляем блок с ответом
+            if (message.reply_to) {
+                const replyAuthor = message.reply_sender_id === localStorage.getItem('user_id') ? 'Вы' : 
+                                    document.getElementById('chat-username').textContent;
+                
+                // Обрезаем текст, если он слишком длинный
+                let replyText = message.reply_text;
+                if (replyText.length > 50) {
+                    replyText = replyText.substring(0, 47) + '...';
+                }
+                
+                messageContent += `
+                    <div class="reply-preview">
+                        <div class="reply-author">${replyAuthor}</div>
+                        <div class="reply-text">${replyText}</div>
+                    </div>
+                `;
+            }
+            
+            messageContent += `
                 <div class="message-text">${message.text}</div>
                 <div class="message-info">
                     <span>${dateString} ${timeString}</span>
                     ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
                 </div>
             `;
+            
+            messageElement.innerHTML = messageContent;
         }
         
         messagesContainer.appendChild(messageElement);
+        
+        // Если это сообщение с ответом, увеличиваем его высоту
+        if (message.reply_to) {
+            messageElement.style.minHeight = '100px'; // Увеличиваем высоту
+        }
     } else if (isMyMessage && !message.isVoiceMessage && !message.is_voice) {
         const infoElement = messageElement.querySelector('.message-info');
         if (infoElement) {
@@ -1320,36 +1356,42 @@ function initMessageContextMenu() {
         closeMessageContextMenu();
     });
 
-    function handleReply() {
-        if (!currentContextMessage) return;
+function handleReply() {
+    if (!currentContextMessage) return;
+    
+    try {
+        const messageText = currentContextMessage.querySelector('.message-text').textContent;
+        const isMyMessage = currentContextMessage.classList.contains('my-message');
+        const replyContainer = document.getElementById('reply-container');
+        const messageId = currentContextMessage.dataset.id;
         
-        try {
-            const messageText = currentContextMessage.querySelector('.message-text').textContent;
-            const isMyMessage = currentContextMessage.classList.contains('my-message');
-            const replyContainer = document.getElementById('reply-container');
-            
-            replyContainer.innerHTML = `
-                <div class="reply-header">
-                    <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
-                    <div class="reply-close">×</div>
-                </div>
-                <div class="reply-text">${messageText}</div>
-            `;
-            
-            replyContainer.classList.remove('hidden');
-            
-            // Обработчик закрытия ответа - теперь просто скрываем контейнер
-            replyContainer.querySelector('.reply-close').addEventListener('click', () => {
-                replyContainer.classList.add('hidden');
-            });
-            
-            const messageInput = document.getElementById('message-input');
-            messageInput.focus();
-            
-        } catch (error) {
-            console.error('Ошибка при обработке ответа:', error);
-        }
+        // Устанавливаем ID сообщения, на которое отвечаем
+        replyContainer.dataset.messageId = messageId;
+        
+        replyContainer.innerHTML = `
+            <div class="reply-header">
+                <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
+                <div class="reply-close">×</div>
+            </div>
+            <div class="reply-text">${messageText.length > 50 ? messageText.substring(0, 47) + '...' : messageText}</div>
+        `;
+        
+        replyContainer.classList.remove('hidden');
+        document.querySelector('.message-input-container').classList.add('expanded');
+        
+        // Обработчик закрытия ответа
+        replyContainer.querySelector('.reply-close').addEventListener('click', () => {
+            replyContainer.classList.add('hidden');
+            document.querySelector('.message-input-container').classList.remove('expanded');
+        });
+        
+        const messageInput = document.getElementById('message-input');
+        messageInput.focus();
+        
+    } catch (error) {
+        console.error('Ошибка при обработке ответа:', error);
     }
+}
 
     function handleEdit() {
         if (!currentContextMessage) {

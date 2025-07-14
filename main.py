@@ -269,7 +269,7 @@ def remove_friend(current_user_id, friend_id):
         return {"success": False, "message": "Ошибка при удалении из друзей"}
 
 @eel.expose
-def send_message(sender_id, receiver_id, text):
+def send_message(sender_id, receiver_id, text, reply_to=None):
     try:
         logger.info(f"Попытка отправить сообщение: sender_id={sender_id}, receiver_id={receiver_id}, text={text}")
         
@@ -291,33 +291,28 @@ def send_message(sender_id, receiver_id, text):
             "receiver_id": ObjectId(receiver_id),
             "text": text,
             "timestamp": utc_time,
-            "read": is_self_message,  # True если сообщение самому себе
-            "local_timestamp": local_time_str
+            "read": is_self_message,
+            "local_timestamp": local_time_str,
+            "reply_to": ObjectId(reply_to) if reply_to else None  # Сохраняем ID сообщения, на которое отвечаем
         }
         
         result = messages_collection.insert_one(message_data)
         logger.info(f"Сообщение успешно сохранено в БД, ID: {result.inserted_id}")
         
-        # Если это не сообщение самому себе и это первое сообщение - добавляем в друзья
-        if not is_self_message:
-            existing_messages = messages_collection.count_documents({
-                "$or": [
-                    {"sender_id": ObjectId(sender_id), "receiver_id": ObjectId(receiver_id)},
-                    {"sender_id": ObjectId(receiver_id), "receiver_id": ObjectId(sender_id)}
-                ]
-            })
-            
-            if existing_messages == 0:
-                add_friend_result = add_friend(sender_id, receiver_id)
-                if not add_friend_result["success"]:
-                    logger.warning(f"Не удалось автоматически добавить в друзья: {add_friend_result['message']}")
+        # Получаем данные сообщения, на которое отвечаем (если есть)
+        reply_message = None
+        if reply_to:
+            reply_message = messages_collection.find_one({"_id": ObjectId(reply_to)})
         
         return {
             "success": True,
             "message_id": str(result.inserted_id),
             "timestamp": local_time_str,
             "read": is_self_message,
-            "text": text  # Добавляем текст сообщения в ответ
+            "text": text,
+            "reply_to": reply_to,
+            "reply_text": reply_message["text"] if reply_message else None,
+            "reply_sender_id": str(reply_message["sender_id"]) if reply_message else None
         }
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {str(e)}")
@@ -347,6 +342,11 @@ def get_chat_history(user1_id, user2_id):
         
         result = []
         for msg in messages:
+            # Получаем данные сообщения, на которое есть ответ (если есть)
+            reply_message = None
+            if msg.get("reply_to"):
+                reply_message = messages_collection.find_one({"_id": msg["reply_to"]})
+            
             m = {
                 "id": str(msg["_id"]),
                 "sender_id": str(msg["sender_id"]),
@@ -354,7 +354,10 @@ def get_chat_history(user1_id, user2_id):
                 "text": msg["text"],
                 "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
                 "read": msg.get("read", False),
-                "listened": msg.get("listened", False) if msg.get("is_voice") else True
+                "listened": msg.get("listened", False) if msg.get("is_voice") else True,
+                "reply_to": str(msg["reply_to"]) if msg.get("reply_to") else None,
+                "reply_text": reply_message["text"] if reply_message else None,
+                "reply_sender_id": str(reply_message["sender_id"]) if reply_message else None
             }
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
