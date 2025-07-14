@@ -36,18 +36,19 @@
                 <div class="no-messages">Нет сообщений</div>
             </div>
             <div class="message-input-container">
-                <button class="voice-message-btn" id="voice-message-btn">
-                    <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
-                </button>
-                <div class="message-input-wrapper">
-                    <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
-                    <div class="recording-container hidden" id="recording-container">
-                        Запись: <span id="recording-time">0</span> сек.
+                <div class="reply-container hidden" id="reply-container"></div>
+                <div class="input-row">
+                    <button class="voice-message-btn" id="voice-message-btn">
+                        <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
+                    </button>
+                    <div class="message-input-wrapper">
+                        <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
+                        <div class="recording-container hidden" id="recording-container">
+                            Запись: <span id="recording-time">0</span> сек.
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
     <!-- Контекстное меню -->
     <div class="context-menu" id="context-menu">
@@ -240,13 +241,19 @@
                 }
             });
             
-            // Обработчик отправки сообщения
             document.getElementById('message-input').addEventListener('keypress', async function(e) {
-                if (e.key === 'Enter' && this.value.trim()) {
-                    await sendMessage(this.value.trim());
-                    this.value = '';
-                }
-            });
+    if (e.key === 'Enter' && this.value.trim()) {
+        await sendMessage(this.value.trim());
+        this.value = '';
+        
+        // Удаляем контейнер ответа после отправки
+        const replyContainer = document.querySelector('.reply-container');
+        if (replyContainer) {
+            replyContainer.remove();
+            document.querySelector('.message-input-container').classList.remove('expanded');
+        }
+    }
+});
 
             // Инициализация голосовых сообщений
             document.getElementById('voice-message-btn').addEventListener('mousedown', startRecording);
@@ -1284,19 +1291,38 @@ function initMessageContextMenu() {
     document.getElementById('message-copy').addEventListener('click', handleCopy);
 
     function handleReply() {
-        if (!currentContextMessage) return;
-        
-        try {
-            const messageText = currentContextMessage.querySelector('.message-text').textContent;
-            const messageInput = document.getElementById('message-input');
-            messageInput.value = `Ответ на: "${messageText}" `;
-            messageInput.focus();
-        } catch (error) {
-            console.error('Ошибка при обработке ответа:', error);
-        } finally {
-            messageContextMenu.classList.add('hidden');
-        }
+    if (!currentContextMessage) {
+        document.getElementById('reply-container').classList.add('hidden');
+        return;
     }
+    
+    try {
+        const messageText = currentContextMessage.querySelector('.message-text').textContent;
+        const isMyMessage = currentContextMessage.classList.contains('my-message');
+        const replyContainer = document.getElementById('reply-container');
+        
+        replyContainer.innerHTML = `
+            <div class="reply-header">
+                <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
+                <div class="reply-close">×</div>
+            </div>
+            <div class="reply-text">${messageText}</div>
+        `;
+        
+        replyContainer.classList.remove('hidden');
+        
+        // Обработчик закрытия ответа
+        replyContainer.querySelector('.reply-close').addEventListener('click', () => {
+            replyContainer.classList.add('hidden');
+        });
+        
+        const messageInput = document.getElementById('message-input');
+        messageInput.focus();
+        
+    } catch (error) {
+        console.error('Ошибка при обработке ответа:', error);
+    }
+}
 
     function handleEdit() {
         if (!currentContextMessage) {
