@@ -317,6 +317,127 @@ def send_message(sender_id, receiver_id, text, reply_to=None):
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {str(e)}")
         return {"success": False, "message": "Ошибка при отправке сообщения"}
+    
+    
+    
+@eel.expose
+def save_reply_state(user_id, chat_id, message_id):
+    try:
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "reply_states": {  # Изменили на множественное число для хранения состояний для разных чатов
+                    chat_id: {
+                        "message_id": message_id,
+                        "timestamp": datetime.utcnow()
+                    }
+                }
+            }},
+            upsert=True
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Ошибка сохранения состояния ответа: {e}")
+        return {"success": False}
+
+@eel.expose
+def get_reply_state(user_id, chat_id):
+    try:
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if user and "reply_states" in user and chat_id in user["reply_states"]:
+            reply_state = user["reply_states"][chat_id]
+            # Удаляем старые состояния (старше 4 часов)
+            if (datetime.utcnow() - reply_state["timestamp"]).total_seconds() > 4 * 3600:
+                users_collection.update_one(
+                    {"_id": ObjectId(user_id)},
+                    {"$unset": {f"reply_states.{chat_id}": ""}}
+                )
+                return {"success": False}
+            return {
+                "success": True,
+                "message_id": reply_state["message_id"]
+            }
+        return {"success": False}
+    except Exception as e:
+        logger.error(f"Ошибка получения состояния ответа: {e}")
+        return {"success": False}
+    
+@eel.expose
+def get_message_data(message_id):
+    try:
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if message:
+            return {
+                "id": str(message["_id"]),
+                "sender_id": str(message["sender_id"]),
+                "text": message["text"],
+                "timestamp": message.get("local_timestamp", message["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S"))
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Ошибка получения данных сообщения: {e}")
+        return None
+    
+    
+    
+@eel.expose
+def save_draft_message(user_id, chat_id, text):
+    try:
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {f"drafts.{chat_id}": {"text": text, "timestamp": datetime.utcnow()}}},
+            upsert=True
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Ошибка сохранения черновика: {e}")
+        return {"success": False}
+
+@eel.expose
+def get_draft_message(user_id, chat_id):
+    try:
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if user and "drafts" in user and chat_id in user["drafts"]:
+            draft = user["drafts"][chat_id]
+            # Удаляем старые черновики (старше 4 часов)
+            if (datetime.utcnow() - draft["timestamp"]).total_seconds() > 4 * 3600:
+                users_collection.update_one(
+                    {"_id": ObjectId(user_id)},
+                    {"$unset": {f"drafts.{chat_id}": ""}}
+                )
+                return None
+            return draft["text"]
+        return None
+    except Exception as e:
+        logger.error(f"Ошибка получения черновика: {e}")
+        return None
+
+@eel.expose
+def clear_draft_message(user_id, chat_id):
+    try:
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$unset": {f"drafts.{chat_id}": ""}}
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Ошибка удаления черновика: {e}")
+        return {"success": False}
+    
+    
+    
+    
+@eel.expose
+def clear_reply_state(user_id, chat_id):
+    try:
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$unset": {f"reply_states.{chat_id}": ""}}
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Ошибка очистки состояния ответа: {e}")
+        return {"success": False}
 
 @eel.expose
 def get_chat_history(user1_id, user2_id):

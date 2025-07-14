@@ -97,6 +97,7 @@
         let voiceMessagePlaying = false;
         let currentPlayingVoiceElement = null;
         let currentContextMessage = null; 
+        let chatInputs = {};
 
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
@@ -311,7 +312,55 @@ document.getElementById('message-input').addEventListener('keypress', async func
     }
 }
 
+
+async function checkAndRestoreReplyState() {
+    if (!currentChatUserId) return;
+    
+    try {
+        const replyState = await eel.get_reply_state(localStorage.getItem('user_id'), currentChatUserId)();
+        if (replyState.success) {
+            const message = await eel.get_message_data(replyState.message_id)();
+            if (message) {
+                const replyContainer = document.getElementById('reply-container');
+                const isMyMessage = message.sender_id === localStorage.getItem('user_id');
+                
+                replyContainer.dataset.messageId = message.id;
+                replyContainer.innerHTML = `
+                    <div class="reply-header">
+                        <div class="reply-author">${isMyMessage ? 'Вы' : document.getElementById('chat-username').textContent}</div>
+                        <div class="reply-close">×</div>
+                    </div>
+                    <div class="reply-text">${message.text.length > 50 ? message.text.substring(0, 47) + '...' : message.text}</div>
+                `;
+                
+                replyContainer.classList.remove('hidden');
+                document.querySelector('.message-input-container').classList.add('expanded');
+                
+                // Обработчик закрытия ответа
+                replyContainer.querySelector('.reply-close').addEventListener('click', async () => {
+                    replyContainer.classList.add('hidden');
+                    document.querySelector('.message-input-container').classList.remove('expanded');
+                    await eel.clear_reply_state(localStorage.getItem('user_id'), currentChatUserId)();
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка восстановления состояния ответа:', error);
+    }
+}
+
+
+
 async function openChat(userId) {
+    // Сохраняем текущий текст перед переключением
+    if (currentChatUserId) {
+        const currentText = document.getElementById('message-input').value;
+        if (currentText.trim()) {
+            await eel.save_draft_message(localStorage.getItem('user_id'), currentChatUserId, currentText)();
+        }
+        chatInputs[currentChatUserId] = currentText;
+    }
+    
     // Если чат уже открыт, просто прокручиваем сообщения
     if (currentChatUserId === userId && !document.getElementById('chat-container').classList.contains('hidden')) {
         const messagesContainer = document.getElementById('chat-messages');
@@ -324,6 +373,13 @@ async function openChat(userId) {
     currentPlayingAudio = null;
     voiceMessagePlaying = false;
     currentPlayingVoiceElement = null;
+    
+    // Сбрасываем контейнер ответа при переходе в другой чат
+    const replyContainer = document.getElementById('reply-container');
+    if (replyContainer && !replyContainer.classList.contains('hidden')) {
+        replyContainer.classList.add('hidden');
+        document.querySelector('.message-input-container').classList.remove('expanded');
+    }
     
     if (readStatusInterval) clearInterval(readStatusInterval);
     if (statusUpdateInterval) clearInterval(statusUpdateInterval);
@@ -351,6 +407,13 @@ async function openChat(userId) {
             await loadChatHistory(userId);
         }
         
+        // Восстанавливаем текст из черновика или из кеша
+        const draftText = await eel.get_draft_message(localStorage.getItem('user_id'), userId)();
+        document.getElementById('message-input').value = draftText || chatInputs[userId] || '';
+        
+        // Восстанавливаем состояние ответа
+        await checkAndRestoreReplyState();
+        
         readStatusInterval = setInterval(updateReadStatus, 2000);
         updateReadStatus();
         
@@ -366,6 +429,7 @@ async function openChat(userId) {
         }
     }
 }
+
 
 async function updateListenIndicators() {
     if (!currentChatUserId) return;
@@ -405,7 +469,7 @@ async function updateListenIndicators() {
         messages.forEach(msg => {
             const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
             if (messageElement) {
-                const voiceMessage = messageMessageElement.querySelector('.voice-message');
+                const voiceMessage = messageElement.querySelector('.voice-message'); // Исправлено здесь
                 if (voiceMessage) {
                     const indicator = voiceMessage.querySelector('.listen-indicator');
                     if (indicator) {
@@ -673,12 +737,17 @@ async function sendMessage(text) {
             // Обновляем последнее сообщение на карточке пользователя
             updateLastMessageOnUserCard(currentChatUserId, text, true);
             
-            // Сбрасываем контейнер ответа
+            // Сбрасываем контейнер ответа и очищаем состояние в БД
             if (replyContainer) {
                 replyContainer.classList.add('hidden');
                 replyContainer.innerHTML = '';
                 document.querySelector('.message-input-container').classList.remove('expanded');
+                await eel.clear_reply_state(localStorage.getItem('user_id'), currentChatUserId)();
             }
+            
+            // Очищаем черновик после успешной отправки
+            await eel.clear_draft_message(localStorage.getItem('user_id'), currentChatUserId)();
+            chatInputs[currentChatUserId] = '';
         } else {
             console.error("Ошибка при отправке:", result.message);
         }
@@ -1356,14 +1425,21 @@ function initMessageContextMenu() {
         closeMessageContextMenu();
     });
 
-function handleReply() {
+async function handleReply() {
     if (!currentContextMessage) return;
     
     try {
-        const messageText = currentContextMessage.querySelector('.message-text').textContent;
+        const messageText = currentContextMessage.querySelector('.message-text')?.textContent || '[Голосовое сообщение]';
         const isMyMessage = currentContextMessage.classList.contains('my-message');
         const replyContainer = document.getElementById('reply-container');
         const messageId = currentContextMessage.dataset.id;
+        
+        // Сохраняем состояние ответа в БД для текущего чата
+        await eel.save_reply_state(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            messageId
+        )();
         
         // Устанавливаем ID сообщения, на которое отвечаем
         replyContainer.dataset.messageId = messageId;
@@ -1380,9 +1456,11 @@ function handleReply() {
         document.querySelector('.message-input-container').classList.add('expanded');
         
         // Обработчик закрытия ответа
-        replyContainer.querySelector('.reply-close').addEventListener('click', () => {
+        replyContainer.querySelector('.reply-close').addEventListener('click', async () => {
             replyContainer.classList.add('hidden');
             document.querySelector('.message-input-container').classList.remove('expanded');
+            // Очищаем состояние ответа в БД для текущего чата
+            await eel.clear_reply_state(localStorage.getItem('user_id'), currentChatUserId)();
         });
         
         const messageInput = document.getElementById('message-input');
@@ -1392,6 +1470,8 @@ function handleReply() {
         console.error('Ошибка при обработке ответа:', error);
     }
 }
+
+
 
     function handleEdit() {
         if (!currentContextMessage) {
