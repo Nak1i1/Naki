@@ -100,6 +100,52 @@
         let currentContextMessage = null; 
         let chatInputs = {};
 
+async function updateLastMessageAfterDelete(chatUserId) {
+    try {
+        const lastMessage = await eel.get_last_message(localStorage.getItem('user_id'), chatUserId)();
+        const userCard = document.querySelector(`.user-bar[data-user-id="${chatUserId}"]`);
+        
+        if (!userCard) return;
+        
+        const lastMsgDiv = userCard.querySelector('.last-message');
+        const contentWrapper = userCard.querySelector('.user-content-wrapper');
+        
+        if (lastMessage) {
+            let displayText = lastMessage.text;
+            if (displayText.length > 25) {
+                displayText = displayText.substring(0, 22) + '...';
+            }
+            
+            if (lastMessage.sender_id === localStorage.getItem('user_id')) {
+                if (lastMsgDiv) {
+                    lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+                } else if (contentWrapper) {
+                    const newLastMsgDiv = document.createElement('div');
+                    newLastMsgDiv.className = 'last-message';
+                    newLastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+                    contentWrapper.appendChild(newLastMsgDiv);
+                }
+            } else {
+                if (lastMsgDiv) {
+                    lastMsgDiv.textContent = displayText;
+                } else if (contentWrapper) {
+                    const newLastMsgDiv = document.createElement('div');
+                    newLastMsgDiv.className = 'last-message';
+                    newLastMsgDiv.textContent = displayText;
+                    contentWrapper.appendChild(newLastMsgDiv);
+                }
+            }
+        } else {
+            // Если сообщений нет, удаляем блок last-message
+            if (lastMsgDiv) {
+                lastMsgDiv.remove();
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка при обновлении последнего сообщения:', error);
+    }
+}
+
         document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем авторизацию
             const user_id = localStorage.getItem('user_id');
@@ -179,56 +225,7 @@
 
 
 
-async function updateLastMessageAfterDelete(chatUserId) {
-    try {
-        const lastMessage = await eel.get_last_message(localStorage.getItem('user_id'), chatUserId)();
-        const userCard = document.querySelector(`.user-bar[data-user-id="${chatUserId}"]`);
-        
-        if (!userCard) return;
-        
-        const lastMsgDiv = userCard.querySelector('.last-message');
-        
-        if (lastMessage) {
-            let displayText = lastMessage.text;
-            if (displayText.length > 25) {
-                displayText = displayText.substring(0, 22) + '...';
-            }
-            
-            if (lastMessage.sender_id === localStorage.getItem('user_id')) {
-                if (lastMsgDiv) {
-                    lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
-                } else {
-                    const contentWrapper = userCard.querySelector('.user-content-wrapper');
-                    if (contentWrapper) {
-                        const newLastMsgDiv = document.createElement('div');
-                        newLastMsgDiv.className = 'last-message';
-                        newLastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
-                        contentWrapper.appendChild(newLastMsgDiv);
-                    }
-                }
-            } else {
-                if (lastMsgDiv) {
-                    lastMsgDiv.textContent = displayText;
-                } else {
-                    const contentWrapper = userCard.querySelector('.user-content-wrapper');
-                    if (contentWrapper) {
-                        const newLastMsgDiv = document.createElement('div');
-                        newLastMsgDiv.className = 'last-message';
-                        newLastMsgDiv.textContent = displayText;
-                        contentWrapper.appendChild(newLastMsgDiv);
-                    }
-                }
-            }
-        } else {
-            // Если сообщений нет, удаляем блок last-message
-            if (lastMsgDiv) {
-                lastMsgDiv.remove();
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка при обновлении последнего сообщения:', error);
-    }
-}
+
 
 
             // Обработчик нажатия ESC
@@ -890,7 +887,6 @@ async function loadChatHistory(userId) {
         }
     } catch (error) {
         console.error('Error loading chat history:', error);
-        // Добавляем сообщение об ошибке в интерфейс
         document.getElementById('chat-messages').innerHTML = 
             '<div class="error-message">Ошибка загрузки истории сообщений</div>';
     }
@@ -1873,11 +1869,16 @@ async function handleDelete() {
         }
     }, { once: true });
     
-    document.getElementById('delete-for-me-btn').addEventListener('click', async () => {
-        try {
-            // Удаляем сообщение только локально
+document.getElementById('delete-for-me-btn').addEventListener('click', async () => {
+    try {
+        const messageId = currentContextMessage.dataset.id;
+        const userId = localStorage.getItem('user_id');
+        
+        const result = await eel.delete_message_for_me(userId, messageId)();
+        if (result.success) {
             currentContextMessage.remove();
             
+            // Обновляем кеш чата
             if (currentChatUserId && activeChats[currentChatUserId]) {
                 const messagesContainer = document.getElementById('chat-messages');
                 activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
@@ -1888,23 +1889,26 @@ async function handleDelete() {
                 }
             }
             
-            // Получаем новое последнее сообщение и обновляем карточку
-            const lastMessage = await eel.get_last_message(localStorage.getItem('user_id'), currentChatUserId)();
-            if (lastMessage) {
-                updateLastMessageOnUserCard(currentChatUserId, lastMessage.text, 
-                                          lastMessage.sender_id === localStorage.getItem('user_id'));
-            } else {
-                // Если сообщений не осталось, очищаем last-message
-                updateLastMessageOnUserCard(currentChatUserId, '', false);
+            // Обновляем последнее сообщение в списке чатов
+            await updateLastMessageAfterDelete(currentChatUserId);
+            
+            // Если это был последний видимый элемент в чате, показываем "Нет сообщений"
+            const messagesContainer = document.getElementById('chat-messages');
+            if (messagesContainer.children.length === 0 || 
+                (messagesContainer.children.length === 1 && 
+                 messagesContainer.children[0].classList.contains('no-messages'))) {
+                messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
             }
-        } catch (error) {
-            console.error('Ошибка при удалении:', error);
-            alert('Ошибка при удалении сообщения');
-        } finally {
-            closeDeleteModal();
+        } else {
+            alert(result.message || 'Не удалось удалить сообщение');
         }
-    }, { once: true });
-}
+    } catch (error) {
+        console.error('Ошибка при удалении:', error);
+        alert('Ошибка при удалении сообщения');
+    } finally {
+        closeDeleteModal();
+    }
+}, { once: true });}
 
 
     function handleForward() {

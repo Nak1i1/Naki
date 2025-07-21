@@ -446,7 +446,8 @@ def get_chat_history(user1_id, user2_id):
             "$or": [
                 {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
                 {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
-            ]
+            ],
+            "deleted_for": {"$ne": ObjectId(user1_id)}  # Исключаем сообщения, удаленные для этого пользователя
         }).sort("timestamp", 1)
         
         # Помечаем текстовые сообщения как прочитанные, но не голосовые
@@ -494,7 +495,10 @@ def get_chat_history(user1_id, user2_id):
 @eel.expose
 def check_new_messages(user_id, last_message_id=None):
     try:
-        query = {"receiver_id": ObjectId(user_id)}
+        query = {
+            "receiver_id": ObjectId(user_id),
+            "deleted_for": {"$ne": ObjectId(user_id)}  # Исключаем удаленные сообщения
+        }
         if last_message_id:
             query["_id"] = {"$gt": ObjectId(last_message_id)}
         
@@ -660,16 +664,32 @@ def get_current_user_id():
     # Это временное решение, в продакшене нужно использовать сессии/токены
     from flask import request
     return request.cookies.get('user_id') or ''
-    
+@eel.expose
+def delete_message_for_me(user_id, message_id):
+    try:
+        # Добавляем пользователя в список "deleted_for" для этого сообщения
+        result = messages_collection.update_one(
+            {"_id": ObjectId(message_id)},
+            {"$addToSet": {"deleted_for": ObjectId(user_id)}}
+        )
+        
+        if result.modified_count > 0:
+            return {"success": True, "message": "Сообщение удалено только для вас"}
+        return {"success": False, "message": "Сообщение уже было удалено"}
+    except Exception as e:
+        logger.error(f"Ошибка удаления сообщения: {e}")
+        return {"success": False, "message": "Ошибка при удалении сообщения"}
 
 @eel.expose
 def get_last_message(user1_id, user2_id):
     try:
+        # Ищем последнее сообщение, которое НЕ удалено для user1_id
         message = messages_collection.find_one({
             "$or": [
                 {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
                 {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
-            ]
+            ],
+            "deleted_for": {"$ne": ObjectId(user1_id)}  # Исключаем сообщения, удаленные для этого пользователя
         }, sort=[("timestamp", -1)])
         
         if message:
@@ -682,6 +702,7 @@ def get_last_message(user1_id, user2_id):
     except Exception as e:
         logger.error(f"Error getting last message: {e}")
         return None
+    
 # Запуск приложения
 if __name__ == '__main__':
     try:
