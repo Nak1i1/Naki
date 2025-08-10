@@ -1369,17 +1369,26 @@ body {
 .custom-scrollbar-thumb {
     position: absolute;
     width: 100%;
-    background-color: #4CAF50; /* Салатовый цвет по умолчанию */
+    background-color: #4CAF50; /* Зеленый цвет по умолчанию */
     border-radius: 3px;
     cursor: pointer;
     transition: background-color 0.2s ease;
-    opacity: 1 !important; /* Убираем прозрачность */
 }
 
 
 .custom-scrollbar-thumb:hover {
     background-color: #2E7D32;
 }
+
+.custom-scrollbar-thumb.dragging {
+    background-color: #2E7D32;
+}
+
+.right-container:hover .custom-scrollbar-thumb:not(:hover):not(.dragging) {
+    background-color: #4CAF50;
+}
+
+
 
 .custom-scrollbar-thumb:not(:hover) {
     background-color: #4CAF50; /* Возвращаем салатовый цвет */

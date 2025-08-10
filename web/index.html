@@ -469,7 +469,12 @@ function initCustomScroll() {
     const messagesWrapper = document.getElementById('chat-messages-wrapper');
     const scrollbar = document.getElementById('custom-scrollbar');
     const scrollThumb = document.getElementById('custom-scrollbar-thumb');
+    const rightContainer = document.querySelector('.right-container');
     
+    let isDraggingScroll = false;
+    let scrollDragStartY = 0;
+    let scrollThumbStartY = 0;
+
     // Функция обновления позиции и размера ползунка
     function updateScrollThumb() {
         if (!messagesWrapper) return;
@@ -490,20 +495,10 @@ function initCustomScroll() {
         scrollThumb.style.top = `${thumbPosition}px`;
     }
     
-    // Показываем/скрываем скроллбар при наведении
-    messagesWrapper.addEventListener('mouseenter', () => {
-        scrollbar.style.opacity = '1';
-    });
-    
-    messagesWrapper.addEventListener('mouseleave', () => {
-        if (!isDraggingScroll) {
-            scrollbar.style.opacity = '0';
-        }
-    });
-    
     // Обработчики для перетаскивания ползунка
     scrollThumb.addEventListener('mousedown', (e) => {
         isDraggingScroll = true;
+        scrollThumb.classList.add('dragging'); // Добавляем класс при начале перетаскивания
         scrollDragStartY = e.clientY;
         scrollThumbStartY = parseInt(scrollThumb.style.top || '0');
         e.preventDefault();
@@ -532,6 +527,7 @@ function initCustomScroll() {
     
     const handleScrollEnd = () => {
         isDraggingScroll = false;
+        scrollThumb.classList.remove('dragging'); // Убираем класс при окончании перетаскивания
         document.removeEventListener('mousemove', handleScrollMove);
         document.removeEventListener('mouseup', handleScrollEnd);
     };
