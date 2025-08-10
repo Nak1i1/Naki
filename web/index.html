@@ -25,30 +25,38 @@
             <img src="https://cdn-icons-png.flaticon.com/512/5757/5757765.png" alt="Выберите чат" class="default-image">
         </div>
         
-        <div class="chat-container hidden" id="chat-container">
-            <div class="chat-header">
-                <div class="chat-username" id="chat-username"></div>
-                <div class="chat-header-info">
-                    <div class="chat-status" id="chat-status"></div>
-                </div>
-            </div>
+<div class="chat-container hidden" id="chat-container">
+    <div class="chat-header">
+        <div class="chat-username" id="chat-username"></div>
+        <div class="chat-header-info">
+            <div class="chat-status" id="chat-status"></div>
+        </div>
+    </div>
+    <div class="chat-scroll-container">
+        <div class="chat-messages-wrapper" id="chat-messages-wrapper">
             <div class="chat-messages" id="chat-messages">
                 <div class="no-messages">Нет сообщений</div>
             </div>
-            <div class="message-input-container">
-                <div class="reply-container hidden" id="reply-container"></div>
-                <div class="input-row">
-                    <button class="voice-message-btn" id="voice-message-btn">
-                        <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
-                    </button>
-                    <div class="message-input-wrapper">
-                        <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
-                        <div class="recording-container hidden" id="recording-container">
-                            Запись: <span id="recording-time">0</span> сек.
-                        </div>
-                    </div>
+        </div>
+        <div class="custom-scrollbar" id="custom-scrollbar">
+            <div class="custom-scrollbar-thumb" id="custom-scrollbar-thumb"></div>
+        </div>
+    </div>
+    <div class="message-input-container">
+        <div class="reply-container hidden" id="reply-container"></div>
+        <div class="input-row">
+            <button class="voice-message-btn" id="voice-message-btn">
+                <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
+            </button>
+            <div class="message-input-wrapper">
+                <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
+                <div class="recording-container hidden" id="recording-container">
+                    Запись: <span id="recording-time">0</span> сек.
                 </div>
             </div>
+        </div>
+    </div>
+</div>
 
     <!-- Контекстное меню -->
     <div class="context-menu" id="context-menu">
@@ -99,6 +107,10 @@
         let currentPlayingVoiceElement = null;
         let currentContextMessage = null; 
         let chatInputs = {};
+        let scrollPositions = {};
+    let isDraggingScroll = false;
+    let scrollDragStartY = 0;
+    let scrollThumbStartY = 0;
 
 async function updateLastMessageAfterDelete(chatUserId) {
     try {
@@ -146,13 +158,14 @@ async function updateLastMessageAfterDelete(chatUserId) {
     }
 }
 
-        document.addEventListener('DOMContentLoaded', async function() {
-            // Проверяем авторизацию
-            const user_id = localStorage.getItem('user_id');
-            if (!user_id) {
-                window.location.href = 'login.html';
-                return;
-            }
+document.addEventListener('DOMContentLoaded', async function() {
+    // Проверяем авторизацию
+    const user_id = localStorage.getItem('user_id');
+    if (!user_id) {
+        window.location.href = 'login.html';
+        return;
+    }
+        initCustomScroll();
 
             // Добавляем обработчик перед выгрузкой страницы
             window.addEventListener('beforeunload', function() {
@@ -452,7 +465,108 @@ document.getElementById('message-input').addEventListener('keypress', async func
             // Первоначальная загрузка друзей
             await loadFriends();
         });
-
+function initCustomScroll() {
+    const messagesWrapper = document.getElementById('chat-messages-wrapper');
+    const scrollbar = document.getElementById('custom-scrollbar');
+    const scrollThumb = document.getElementById('custom-scrollbar-thumb');
+    
+    // Функция обновления позиции и размера ползунка
+    function updateScrollThumb() {
+        if (!messagesWrapper) return;
+        
+        const { scrollHeight, clientHeight, scrollTop } = messagesWrapper;
+        
+        // Не показывать скроллбар если контент помещается
+        if (scrollHeight <= clientHeight) {
+            scrollbar.style.display = 'none';
+            return;
+        }
+        
+        scrollbar.style.display = 'block';
+        const thumbHeight = Math.max(20, (clientHeight / scrollHeight) * clientHeight);
+        const thumbPosition = (scrollTop / (scrollHeight - clientHeight)) * (clientHeight - thumbHeight);
+        
+        scrollThumb.style.height = `${thumbHeight}px`;
+        scrollThumb.style.top = `${thumbPosition}px`;
+    }
+    
+    // Показываем/скрываем скроллбар при наведении
+    messagesWrapper.addEventListener('mouseenter', () => {
+        scrollbar.style.opacity = '1';
+    });
+    
+    messagesWrapper.addEventListener('mouseleave', () => {
+        if (!isDraggingScroll) {
+            scrollbar.style.opacity = '0';
+        }
+    });
+    
+    // Обработчики для перетаскивания ползунка
+    scrollThumb.addEventListener('mousedown', (e) => {
+        isDraggingScroll = true;
+        scrollDragStartY = e.clientY;
+        scrollThumbStartY = parseInt(scrollThumb.style.top || '0');
+        e.preventDefault();
+        
+        document.addEventListener('mousemove', handleScrollMove);
+        document.addEventListener('mouseup', handleScrollEnd);
+    });
+    
+    const handleScrollMove = (e) => {
+        if (!isDraggingScroll) return;
+        
+        const deltaY = e.clientY - scrollDragStartY;
+        let newThumbPosition = scrollThumbStartY + deltaY;
+        
+        // Ограничиваем позицию ползунка
+        const maxPosition = messagesWrapper.clientHeight - scrollThumb.offsetHeight;
+        newThumbPosition = Math.max(0, Math.min(maxPosition, newThumbPosition));
+        
+        // Обновляем позицию ползунка
+        scrollThumb.style.top = `${newThumbPosition}px`;
+        
+        // Прокручиваем контент
+        const scrollRatio = newThumbPosition / maxPosition;
+        messagesWrapper.scrollTop = scrollRatio * (messagesWrapper.scrollHeight - messagesWrapper.clientHeight);
+    };
+    
+    const handleScrollEnd = () => {
+        isDraggingScroll = false;
+        document.removeEventListener('mousemove', handleScrollMove);
+        document.removeEventListener('mouseup', handleScrollEnd);
+    };
+    
+    // Прокрутка при клике на область скроллбара
+    scrollbar.addEventListener('click', (e) => {
+        if (e.target === scrollbar) {
+            const rect = scrollbar.getBoundingClientRect();
+            const clickPosition = e.clientY - rect.top;
+            const thumbHeight = scrollThumb.offsetHeight;
+            
+            // Позиционируем ползунок по центру клика
+            let newThumbPosition = clickPosition - thumbHeight / 2;
+            newThumbPosition = Math.max(0, Math.min(rect.height - thumbHeight, newThumbPosition));
+            scrollThumb.style.top = `${newThumbPosition}px`;
+            
+            // Прокручиваем контент
+            const scrollRatio = newThumbPosition / (rect.height - thumbHeight);
+            messagesWrapper.scrollTop = scrollRatio * (messagesWrapper.scrollHeight - messagesWrapper.clientHeight);
+        }
+    });
+    
+    // Обновляем ползунок при прокрутке колесом
+    messagesWrapper.addEventListener('scroll', updateScrollThumb);
+    
+    // Инициализируем ползунок
+    updateScrollThumb();
+    
+    // Обновляем ползунок при изменении размера окна
+    window.addEventListener('resize', updateScrollThumb);
+    
+    // Обновляем ползунок при изменении содержимого
+    const observer = new MutationObserver(updateScrollThumb);
+    observer.observe(messagesWrapper, { childList: true, subtree: true });
+}
         function startOnlineStatusUpdates() {
             updateOnlineStatus();
             onlineStatusInterval = setInterval(updateOnlineStatus, 30000);
@@ -542,8 +656,13 @@ async function checkAndRestoreReplyState() {
 
 
 async function openChat(userId) {
-    // Сохраняем текущий текст перед переключением
+    // Сохраняем текущую позицию прокрутки перед переключением
     if (currentChatUserId) {
+        const messagesWrapper = document.getElementById('chat-messages-wrapper');
+        if (messagesWrapper) {
+            scrollPositions[currentChatUserId] = messagesWrapper.scrollTop;
+        }
+        
         const currentText = document.getElementById('message-input').value;
         if (currentText.trim()) {
             await eel.save_draft_message(localStorage.getItem('user_id'), currentChatUserId, currentText)();
@@ -553,8 +672,10 @@ async function openChat(userId) {
     
     // Если чат уже открыт, просто прокручиваем сообщения
     if (currentChatUserId === userId && !document.getElementById('chat-container').classList.contains('hidden')) {
-        const messagesContainer = document.getElementById('chat-messages');
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        const messagesWrapper = document.getElementById('chat-messages-wrapper');
+        if (messagesWrapper) {
+            messagesWrapper.scrollTop = scrollPositions[userId] || messagesWrapper.scrollHeight;
+        }
         return;
     }
 
@@ -584,11 +705,24 @@ async function openChat(userId) {
             userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
         await updateUserStatus();
         
+        // Инициализируем кастомный скроллбар (добавлено для чата с самим собой)
+        initCustomScroll();
+        
         if (activeChats[userId]) {
             document.getElementById('chat-messages').innerHTML = activeChats[userId].messages;
             lastMessageId = activeChats[userId].lastMessageId;
-            const messagesContainer = document.getElementById('chat-messages');
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            // Восстанавливаем позицию прокрутки или прокручиваем вниз
+            setTimeout(() => {
+                const messagesWrapper = document.getElementById('chat-messages-wrapper');
+                if (messagesWrapper) {
+                    if (scrollPositions[userId] !== undefined) {
+                        messagesWrapper.scrollTop = scrollPositions[userId];
+                    } else {
+                        messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+                    }
+                }
+            }, 0);
             
             // Обновляем индикаторы перед установкой обработчиков
             await updateListenIndicators();
@@ -873,7 +1007,18 @@ async function loadChatHistory(userId) {
                 messagesData: messagesData
             };
             
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            // Прокручиваем вниз только если позиция не сохранена
+            setTimeout(() => {
+                const messagesWrapper = document.getElementById('chat-messages-wrapper');
+                if (messagesWrapper) {
+                    if (scrollPositions[userId] !== undefined) {
+                        messagesWrapper.scrollTop = scrollPositions[userId];
+                    } else {
+                        messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+                    }
+                }
+            }, 0);
+            
             setupVoiceMessageHandlers();
         } else {
             messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
