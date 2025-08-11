@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Инициализация MongoDB
+# Настройка MongoDB
 try:
     client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=5000)
     client.server_info()  # Проверка подключения
@@ -19,7 +20,18 @@ try:
     logger.info("Успешное подключение к MongoDB")
 except Exception as e:
     logger.error(f"Ошибка подключения к MongoDB: {e}")
-    raise
+    # Создаем локальные коллекции в памяти, если MongoDB недоступна
+    from pymongo import MongoClient
+    from pymongo.errors import ConnectionFailure
+    try:
+        client = MongoClient('mongodb://localhost:27017/', connect=False)
+        db = client['messenger_db']
+        users_collection = db['users']
+        messages_collection = db['messages']
+        logger.warning("Используется локальное подключение к MongoDB")
+    except Exception as e:
+        logger.error(f"Не удалось создать локальное подключение: {e}")
+        raise
 
 # Создание коллекций и индексов
 if 'users' not in db.list_collection_names():

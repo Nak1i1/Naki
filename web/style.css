@@ -1354,11 +1354,15 @@ body {
     top: 0;
     bottom: 0;
     width: 6px;
-    background-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.05);
     border-radius: 3px;
     z-index: 10;
-    opacity: 1;
+    opacity: 0;
     transition: opacity 0.3s;
+}
+
+.right-container:hover .custom-scrollbar {
+    opacity: 1;
 }
 
 .custom-scrollbar:hover {
@@ -1369,12 +1373,21 @@ body {
 .custom-scrollbar-thumb {
     position: absolute;
     width: 100%;
-    background-color: #4CAF50; /* Зеленый цвет по умолчанию */
+    background-color: #4CAF50;
     border-radius: 3px;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
 
+
+.right-container:hover .custom-scrollbar-thumb {
+    background-color: #4CAF50;
+}
+
+.custom-scrollbar-thumb:hover,
+.custom-scrollbar-thumb.dragging {
+    background-color: #2E7D32;
+}
 
 .custom-scrollbar-thumb:hover {
     background-color: #2E7D32;
@@ -1457,4 +1470,65 @@ body {
     transform: none;
     width: 15px;
     height: 15px;
+}
+
+/* Добавьте в конец style.css */
+.photo-message-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #4CAF50;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.photo-message-btn img {
+    width: 20px;
+    height: 20px;
+}
+
+.message-input {
+    flex-grow: 1;
+    height: 40px;
+    padding: 0 15px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    outline: none;
+    box-sizing: border-box;
+    margin: 0 10px; /* Добавлен отступ между кнопками и полем ввода */
+}
+
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 0; /* Убираем стандартный отступ между элементами */
+}
+
+.message-input-wrapper {
+    flex-grow: 1;
+    display: flex;
+    position: relative;
+}
+
+.voice-message-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #4CAF50;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.voice-message-btn img {
+    width: 20px;
+    height: 20px;
 }

@@ -45,16 +45,19 @@
     <div class="message-input-container">
         <div class="reply-container hidden" id="reply-container"></div>
         <div class="input-row">
-            <button class="voice-message-btn" id="voice-message-btn">
-                <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
-            </button>
-            <div class="message-input-wrapper">
-                <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
-                <div class="recording-container hidden" id="recording-container">
-                    Запись: <span id="recording-time">0</span> сек.
-                </div>
-            </div>
+    <button class="photo-message-btn" id="photo-message-btn">
+        <img src="https://cdn-icons-png.flaticon.com/512/266/266074.png" alt="Фото">
+    </button>
+    <div class="message-input-wrapper">
+        <input type="text" class="message-input" placeholder="Напишите сообщение..." id="message-input">
+        <div class="recording-container hidden" id="recording-container">
+            Запись: <span id="recording-time">0</span> сек.
         </div>
+    </div>
+    <button class="voice-message-btn" id="voice-message-btn">
+        <img src="https://images.icon-icons.com/2066/PNG/512/mic_icon_125214.png" alt="Запись">
+    </button>
+</div>
     </div>
 </div>
 
@@ -1525,7 +1528,7 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
             }
         }
 
-        async function sendVoiceMessage(audioBlob, duration, oldVisualizationData = null) {
+async function sendVoiceMessage(audioBlob, duration, oldVisualizationData = null) {
     if (!currentChatUserId || !audioBlob) return;
     
     try {
@@ -1561,16 +1564,24 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
                     listened: currentChatUserId === localStorage.getItem('user_id')
                 };
                 
+                // Инициализируем messagesData, если его нет
+                if (!activeChats[currentChatUserId]) {
+                    activeChats[currentChatUserId] = {
+                        messages: '',
+                        lastMessageId: null,
+                        messagesData: []
+                    };
+                } else if (!activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
                 addMessageToChat(message, true, true);
                 lastMessageId = message.id;
                 
                 // Сохраняем состояние чата
                 const messagesContainer = document.getElementById('chat-messages');
-                activeChats[currentChatUserId] = {
-                    messages: messagesContainer.innerHTML,
-                    lastMessageId: lastMessageId,
-                    messagesData: activeChats[currentChatUserId]?.messagesData || []
-                };
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                activeChats[currentChatUserId].lastMessageId = lastMessageId;
                 
                 // Добавляем данные сообщения в кеш
                 activeChats[currentChatUserId].messagesData.push({
@@ -2088,59 +2099,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function playVoiceMessage(audioData, voiceMessageElement, duration) {
-    // Если это уже текущее сообщение и оно на паузе - возобновляем
-    if (currentPlayingVoiceElement === voiceMessageElement && currentPlayingAudio) {
-        const currentTime = currentPlayingAudio.currentTime;
-        currentPlayingAudio.play().then(() => {
-            voiceMessageElement.classList.add('playing');
-            voiceMessagePlaying = true;
-            
-            const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
-            playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
-            
-            const progressBar = voiceMessageElement.querySelector('.voice-progress');
-            progressBar.style.display = 'block';
-            
-            const timeElement = voiceMessageElement.querySelector('.voice-time');
-            const startTime = Date.now() - (currentTime * 1000);
-            
-            // Функция обновления прогресса
-            const updateProgress = () => {
-                if (!voiceMessagePlaying) return;
-                
-                const currentPos = currentPlayingAudio.currentTime;
-                const progressPercent = (currentPos / duration) * 100;
-                
-                // Обновляем позицию ползунка
-                progressBar.style.left = `${progressPercent}%`;
-                
-                // Обновляем анимацию полосок
-                const bars = voiceMessageElement.querySelectorAll('.voice-bar');
-                bars.forEach((bar, i) => {
-                    const barPos = (i / bars.length) * 100;
-                    if (barPos < progressPercent) {
-                        bar.style.opacity = '0.7';
-                    } else {
-                        bar.style.opacity = '0.3';
-                    }
-                });
-                
-                timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
-                
-                if (currentPos >= duration) {
-                    handleVoiceMessagePlayed(voiceMessageElement);
-                } else if (voiceMessagePlaying) {
-                    requestAnimationFrame(updateProgress);
-                }
-            };
-            
-            updateProgress();
-        }).catch(error => {
-            console.error('Ошибка возобновления:', error);
-        });
-        return;
-    }
-
     // Останавливаем текущее воспроизведение, если есть
     if (currentPlayingAudio) {
         currentPlayingAudio.pause();
@@ -2156,11 +2114,12 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     voiceMessagePlaying = true;
     currentPlayingVoiceElement = voiceMessageElement;
     
-    const audio = new Audio(`data:audio/wav;base64,${audioData}`);
+    // Используем правильный MIME-тип для аудио
+    const audio = new Audio(`data:audio/ogg;base64,${audioData}`);
     currentPlayingAudio = audio;
     
     const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
-    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
+    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonка-pauzi-png-30.png';
     
     const progressBar = voiceMessageElement.querySelector('.voice-progress');
     progressBar.style.display = 'block';
@@ -2169,10 +2128,6 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     const timeElement = voiceMessageElement.querySelector('.voice-time');
     timeElement.dataset.duration = duration;
     
-    // Получаем родительский элемент сообщения
-    const messageElement = voiceMessageElement.closest('.message');
-    const isMyMessage = messageElement.classList.contains('my-message');
-    
     // Функция обновления прогресса
     const updateProgress = () => {
         if (!voiceMessagePlaying) return;
@@ -2180,10 +2135,8 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
         const currentPos = audio.currentTime;
         const progressPercent = (currentPos / duration) * 100;
         
-        // Обновляем позицию ползунка
         progressBar.style.left = `${progressPercent}%`;
         
-        // Обновляем анимацию полосок
         const bars = voiceMessageElement.querySelectorAll('.voice-bar');
         bars.forEach((bar, i) => {
             const barPos = (i / bars.length) * 100;
@@ -2210,17 +2163,16 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     
     audio.addEventListener('pause', () => {
         voiceMessagePlaying = false;
-        // При паузе сохраняем текущее состояние прогресса
         const currentTime = audio.currentTime;
         const progressPercent = (currentTime / duration) * 100;
         progressBar.style.left = `${progressPercent}%`;
         timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
         
-        // Меняем иконку на "play"
         playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
     });
     
-    audio.addEventListener('error', () => {
+    audio.addEventListener('error', (e) => {
+        console.error('Audio error:', e);
         stopVoiceMessage(voiceMessageElement, true);
         alert('Ошибка воспроизведения голосового сообщения');
     });
