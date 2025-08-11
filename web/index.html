@@ -7,6 +7,25 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+    <!-- Модальное окно отправки медиа -->
+<div class="media-send-overlay hidden" id="media-send-overlay"></div>
+<div class="media-send-modal hidden" id="media-send-modal">
+    <div class="media-send-title" id="media-send-title">Отправить фото</div>
+    <div class="media-preview-container">
+        <img src="" alt="Preview" class="media-preview hidden" id="image-preview">
+        <video controls class="media-preview hidden" id="video-preview"></video>
+    </div>
+    <input type="text" class="media-caption-input" id="media-caption-input" placeholder="Введите текст">
+    <div class="media-send-buttons">
+        <button class="media-send-button add" id="media-add-button">Добавить</button>
+        <button class="media-send-button cancel" id="media-cancel-button">Отмена</button>
+        <button class="media-send-button send" id="media-send-button">Отправить</button>
+    </div>
+</div>
+
+    <!-- Скрытый input для выбора файлов -->
+<input type="file" id="file-input" class="file-input" accept="image/*,video/*" multiple>
     <div class="top-container">
         <div class="top-row">
             <div class="menu-icon">☰</div>
@@ -135,6 +154,8 @@
     let scrollDragStartY = 0;
     let scrollThumbStartY = 0;
 
+    
+
 async function updateLastMessageAfterDelete(chatUserId) {
     try {
         const lastMessage = await eel.get_last_message(localStorage.getItem('user_id'), chatUserId)();
@@ -182,6 +203,14 @@ async function updateLastMessageAfterDelete(chatUserId) {
 }
 
 document.addEventListener('DOMContentLoaded', async function() {
+
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+});
+
     // Проверяем авторизацию
     const user_id = localStorage.getItem('user_id');
     if (!user_id) {
@@ -2465,7 +2494,18 @@ function stopVoiceMessage(voiceMessageElement = null, reset = false) {
 // Обработчики для меню фото
 const photoBtn = document.getElementById('photo-message-btn');
 const photoOptionsMenu = document.getElementById('photo-options-menu');
-
+const fileInput = document.getElementById('file-input');
+const mediaSendModal = document.getElementById('media-send-modal');
+const mediaSendOverlay = document.getElementById('media-send-overlay');
+const mediaSendTitle = document.getElementById('media-send-title');
+const imagePreview = document.getElementById('image-preview');
+const videoPreview = document.getElementById('video-preview');
+const mediaCaptionInput = document.getElementById('media-caption-input');
+const mediaAddButton = document.getElementById('media-add-button');
+const mediaCancelButton = document.getElementById('media-cancel-button');
+const mediaSendButton = document.getElementById('media-send-button');
+let selectedFiles = [];
+let currentMediaType = 'photo';
 let photoMenuTimeout;
 
 // Показываем меню при наведении на кнопку
@@ -2497,10 +2537,126 @@ photoOptionsMenu.addEventListener('mouseleave', () => {
 document.querySelectorAll('.photo-option').forEach(option => {
     option.addEventListener('click', function() {
         const type = this.dataset.type;
-        alert(`Выбрана опция: ${this.querySelector('span').textContent}`);
+        if (type === 'photo-video') {
+            openFileSelector();
+        } else {
+            alert(`Выбрана опция: ${this.querySelector('span').textContent}`);
+        }
         photoOptionsMenu.classList.remove('show');
     });
 });
+
+function openFileSelector() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.value = ''; // Сбрасываем предыдущий выбор
+        fileInput.click();
+    } else {
+        console.error('File input element not found');
+    }
+}
+
+function handleFileSelect(e) {
+    const mediaSendModal = document.getElementById('media-send-modal');
+    const mediaSendOverlay = document.getElementById('media-send-overlay');
+    const imagePreview = document.getElementById('image-preview');
+    const videoPreview = document.getElementById('video-preview');
+    
+    if (!mediaSendModal || !mediaSendOverlay || !imagePreview || !videoPreview) {
+        console.error('Media send elements not found');
+        return;
+    }
+    
+    selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
+    
+    const file = selectedFiles[0];
+    currentMediaType = file.type.startsWith('video/') ? 'video' : 'photo';
+    
+    // Показываем соответствующее превью
+    imagePreview.classList.add('hidden');
+    videoPreview.classList.add('hidden');
+    
+    if (currentMediaType === 'photo') {
+        mediaSendTitle.textContent = 'Отправить фото';
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            imagePreview.src = event.target.result;
+            imagePreview.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+    } else {
+        mediaSendTitle.textContent = 'Отправить видео';
+        videoPreview.src = URL.createObjectURL(file);
+        videoPreview.classList.remove('hidden');
+    }
+    
+    // Показываем модальное окно
+    mediaSendOverlay.classList.remove('hidden');
+    mediaSendModal.classList.remove('hidden');
+    mediaCaptionInput.value = '';
+    mediaCaptionInput.focus();
+}
+
+mediaAddButton.addEventListener('click', () => {
+    openFileSelector();
+});
+
+mediaCancelButton.addEventListener('click', closeMediaModal);
+
+mediaSendOverlay.addEventListener('click', closeMediaModal);
+
+mediaSendButton.addEventListener('click', sendMedia);
+
+function closeMediaModal() {
+    mediaSendOverlay.classList.add('hidden');
+    mediaSendModal.classList.add('hidden');
+    selectedFiles = [];
+}
+
+async function sendMedia() {
+    if (selectedFiles.length === 0) {
+        alert('Пожалуйста, выберите файл');
+        return;
+    }
+    
+    const caption = mediaCaptionInput.value.trim();
+    const file = selectedFiles[0];
+    
+    try {
+        // Читаем файл как base64
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        
+        reader.onload = async () => {
+            const base64Data = reader.result.split(',')[1];
+            const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+            
+            // Здесь должна быть логика отправки на сервер
+            // Временно просто показываем уведомление
+            alert(`Файл (${fileType}) готов к отправке!${caption ? '\nТекст: ' + caption : ''}`);
+            
+            closeMediaModal();
+        };
+        
+        reader.onerror = () => {
+            throw new Error('Ошибка чтения файла');
+        };
+    } catch (error) {
+        console.error('Ошибка отправки медиа:', error);
+        alert('Ошибка при отправке файла');
+    }
+}
+
+// Обработчик нажатия ESC для закрытия модального окна
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !mediaSendOverlay.classList.contains('hidden')) {
+        closeMediaModal();
+    }
+});
+
+
+
 
 // Позиционируем меню относительно кнопки
 function positionPhotoMenu() {
@@ -2511,6 +2667,8 @@ function positionPhotoMenu() {
 
 // Обновляем позицию при изменении размера окна
 window.addEventListener('resize', positionPhotoMenu);
+
+
 
 
 
@@ -2526,5 +2684,11 @@ window.addEventListener('resize', positionPhotoMenu);
     </div>
     <button class="delete-message-cancel" id="delete-message-cancel-btn">Отмена</button>
 </div>
+
+
+
+
+
+
 </body>
 </html>

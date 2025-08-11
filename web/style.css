@@ -1585,3 +1585,118 @@ body {
 .photo-option span {
     white-space: nowrap;
 }
+
+/* Добавьте в конец style.css */
+.media-send-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 400px;
+    max-width: 90%;
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 102;
+    display: none;
+}
+
+.media-send-modal.show {
+    display: block;
+}
+
+.media-send-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    z-index: 101;
+    display: none;
+}
+
+.media-send-overlay.show {
+    display: block;
+}
+
+.media-send-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.media-preview-container {
+    width: 100%;
+    max-height: 300px;
+    margin-bottom: 15px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 8px;
+    background-color: #f5f5f5;
+}
+
+.media-preview {
+    max-width: 100%;
+    max-height: 300px;
+    object-fit: contain;
+}
+
+.video-preview {
+    width: 100%;
+}
+
+.media-caption-input {
+    width: 100%;
+    padding: 8px 0;
+    border: none;
+    border-bottom: 2px solid #4CAF50;
+    outline: none;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.media-caption-input::placeholder {
+    color: #999;
+}
+
+.media-send-buttons {
+    display: flex;
+    justify-content: space-between;
+}
+
+.media-send-button {
+    padding: 8px 15px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.media-send-button:hover {
+    background-color: #e8f5e9;
+}
+
+.media-send-button.add {
+    color: #4CAF50;
+}
+
+.media-send-button.cancel {
+    color: #ff4444;
+}
+
+.media-send-button.send {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.file-input {
+    display: none;
+}
