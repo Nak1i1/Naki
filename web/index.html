@@ -61,6 +61,26 @@
     </div>
 </div>
 
+<!-- Всплывающее меню для кнопки фото -->
+<div class="photo-options-menu hidden" id="photo-options-menu">
+    <button class="photo-option" data-type="photo-video">
+        <img src="https://cdn-icons-png.flaticon.com/512/266/266074.png" alt="Фото/Видео">
+        <span>Фото и видео</span>
+    </button>
+    <button class="photo-option" data-type="documents">
+        <img src="https://cdn-icons-png.flaticon.com/512/2991/2991112.png" alt="Документы">
+        <span>Документы</span>
+    </button>
+    <button class="photo-option" data-type="poll">
+        <img src="https://cdn-icons-png.flaticon.com/512/3034/3034626.png" alt="Опрос">
+        <span>Создать опрос</span>
+    </button>
+    <button class="photo-option" data-type="location">
+        <img src="https://cdn-icons-png.flaticon.com/512/535/535137.png" alt="Геолокация">
+        <span>Геолокация</span>
+    </button>
+</div>
+
     <!-- Контекстное меню -->
     <div class="context-menu" id="context-menu">
         <div class="context-menu-item add-friend hidden" id="context-menu-add">Добавить в друзья</div>
@@ -2441,6 +2461,59 @@ function stopVoiceMessage(voiceMessageElement = null, reset = false) {
         }
     }
 }
+
+// Обработчики для меню фото
+const photoBtn = document.getElementById('photo-message-btn');
+const photoOptionsMenu = document.getElementById('photo-options-menu');
+
+let photoMenuTimeout;
+
+// Показываем меню при наведении на кнопку
+photoBtn.addEventListener('mouseenter', () => {
+    clearTimeout(photoMenuTimeout);
+    positionPhotoMenu();
+    photoOptionsMenu.classList.remove('hidden');
+    photoOptionsMenu.classList.add('show');
+});
+
+// Скрываем меню при уходе с кнопки (с задержкой)
+photoBtn.addEventListener('mouseleave', () => {
+    photoMenuTimeout = setTimeout(() => {
+        photoOptionsMenu.classList.remove('show');
+    }, 200);
+});
+
+// Отменяем скрытие при наведении на меню
+photoOptionsMenu.addEventListener('mouseenter', () => {
+    clearTimeout(photoMenuTimeout);
+});
+
+// Скрываем меню при уходе с него
+photoOptionsMenu.addEventListener('mouseleave', () => {
+    photoOptionsMenu.classList.remove('show');
+});
+
+// Обработчики для кнопок меню
+document.querySelectorAll('.photo-option').forEach(option => {
+    option.addEventListener('click', function() {
+        const type = this.dataset.type;
+        alert(`Выбрана опция: ${this.querySelector('span').textContent}`);
+        photoOptionsMenu.classList.remove('show');
+    });
+});
+
+// Позиционируем меню относительно кнопки
+function positionPhotoMenu() {
+    const rect = photoBtn.getBoundingClientRect();
+    photoOptionsMenu.style.left = `${rect.left}px`;
+    photoOptionsMenu.style.bottom = `${window.innerHeight - rect.top + 10}px`;
+}
+
+// Обновляем позицию при изменении размера окна
+window.addEventListener('resize', positionPhotoMenu);
+
+
+
     </script>
 <!-- Модальное окно удаления сообщения -->
 <div class="modal-overlay hidden" id="delete-message-overlay"></div>

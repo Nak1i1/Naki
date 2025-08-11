@@ -1532,3 +1532,56 @@ body {
     width: 20px;
     height: 20px;
 }
+
+/* Добавьте в конец style.css */
+.photo-options-menu {
+    position: absolute;
+    bottom: 50px; /* Позиционируем выше кнопки */
+    left: 0;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    padding: 8px 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.2s ease;
+    pointer-events: none;
+    border: 1px solid rgba(0, 0, 0, 0.1); /* Прозрачные грани */
+}
+
+.photo-options-menu.show {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.photo-option {
+    display: flex;
+    align-items: center;
+    padding: 8px 15px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-size: 14px;
+    color: #333;
+    transition: background-color 0.2s;
+}
+
+.photo-option:hover {
+    background-color: #e8f5e9; /* Оливковый цвет при наведении */
+}
+
+.photo-option img {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+}
+
+.photo-option span {
+    white-space: nowrap;
+}
