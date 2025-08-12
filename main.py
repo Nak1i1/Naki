@@ -4,6 +4,9 @@ from datetime import datetime
 from bson.objectid import ObjectId
 import logging
 import pytz
+import os
+import base64
+from pathlib import Path
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -252,6 +255,53 @@ def add_friend(current_user_id, friend_id):
     except Exception as e:
         logger.error(f"Ошибка добавления в друзья: {e}")
         return {"success": False, "message": "Ошибка при добавлении в друзья"}
+    
+    
+    
+    
+@eel.expose
+def create_video_cache_folder():
+    try:
+        cache_dir = Path.home() / '.messenger_video_cache'
+        cache_dir.mkdir(exist_ok=True)
+        return str(cache_dir)
+    except Exception as e:
+        logger.error(f"Error creating video cache folder: {e}")
+        return ""
+
+@eel.expose
+def check_video_cache(message_id):
+    try:
+        cache_dir = Path.home() / '.messenger_video_cache'
+        video_path = cache_dir / f"{message_id}.mp4"
+        return {
+            "exists": video_path.exists(),
+            "path": str(video_path) if video_path.exists() else ""
+        }
+    except Exception as e:
+        logger.error(f"Error checking video cache: {e}")
+        return {"exists": False, "path": ""}
+
+@eel.expose
+def save_video_to_cache(message_id, video_data):
+    try:
+        cache_dir = Path.home() / '.messenger_video_cache'
+        video_path = cache_dir / f"{message_id}.mp4"
+        
+        # Если video_data - это URL, создаем из него файл
+        if video_data.startswith('blob:'):
+            # Здесь нужно реализовать сохранение из blob URL
+            # Это пример - в реальности нужно использовать соответствующий метод
+            with open(video_path, 'wb') as f:
+                f.write(base64.b64decode(video_data.split(',')[1]))
+        else:
+            with open(video_path, 'wb') as f:
+                f.write(base64.b64decode(video_data))
+                
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving video to cache: {e}")
+        return {"success": False}
 
 @eel.expose
 def remove_friend(current_user_id, friend_id):
@@ -373,6 +423,74 @@ def get_reply_state(user_id, chat_id):
     except Exception as e:
         logger.error(f"Ошибка получения состояния ответа: {e}")
         return {"success": False}
+    
+@eel.expose
+def send_media_message(sender_id, receiver_id, media_data, media_type, filename, caption=None):
+    try:
+        # Проверка размера файла (например, не более 10MB)
+        file_size = len(media_data) * 3 / 4  # Примерный расчет размера в байтах
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"success": False, "message": "Файл слишком большой (максимум 10MB)"}
+
+        sender = users_collection.find_one({"_id": ObjectId(sender_id)})
+        receiver = users_collection.find_one({"_id": ObjectId(receiver_id)})
+        
+        if not sender or not receiver:
+            return {"success": False, "message": "User not found"}
+        
+        utc_time = datetime.utcnow()
+        local_time_str = get_local_time()
+        
+        is_self_message = sender_id == receiver_id
+        
+        message_data = {
+            "sender_id": ObjectId(sender_id),
+            "receiver_id": ObjectId(receiver_id),
+            "text": caption or f"[{media_type.capitalize()}]",
+            "timestamp": utc_time,
+            "read": is_self_message,
+            "local_timestamp": local_time_str,
+            "is_media": True,
+            "media_type": media_type,
+            "media_data": media_data,
+            "filename": filename,
+            "file_size": file_size
+        }
+        
+        result = messages_collection.insert_one(message_data)
+        
+        logger.info(f"Медиа сообщение отправлено: {filename}, размер: {file_size/1024/1024:.2f}MB")
+        
+        return {
+            "success": True,
+            "message_id": str(result.inserted_id),
+            "timestamp": local_time_str,
+            "read": is_self_message
+        }
+    except Exception as e:
+        logger.error(f"Error sending media message: {str(e)}")
+        return {"success": False, "message": "Error sending media message"}
+    
+    
+
+
+@eel.expose
+def get_media_message(message_id):
+    try:
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if message and message.get("is_media"):
+            return {
+                "success": True,
+                "media_data": message["media_data"],
+                "media_type": message["media_type"],
+                "filename": message["filename"],
+                "file_size": message.get("file_size", 0)
+            }
+        return {"success": False, "message": "Media message not found"}
+    except Exception as e:
+        logger.error(f"Error getting media message: {e}")
+        return {"success": False, "message": "Error getting media message"}
+    
     
 @eel.expose
 def get_message_data(message_id):
