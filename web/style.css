@@ -1705,3 +1705,21 @@ body {
 .file-input {
     display: none;
 }
+
+.media-message {
+    margin-bottom: 8px;
+    max-width: 100%;
+}
+
+.media-preview {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    display: block;
+}
+
+.media-caption {
+    margin-top: 5px;
+    font-size: 14px;
+    color: inherit;
+}

@@ -25,7 +25,8 @@
 </div>
 
     <!-- Скрытый input для выбора файлов -->
-<input type="file" id="file-input" class="file-input" accept="image/*,video/*" multiple>
+<input type="file" id="file-input" class="file-input" accept="image/*,video/*" onchange="handleFileSelect(event)">
+
     <div class="top-container">
         <div class="top-row">
             <div class="menu-icon">☰</div>
@@ -1217,7 +1218,7 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
                 const indicator = voiceElement.querySelector('.listen-indicator');
                 if (indicator) indicator.style.opacity = '0';
             }
-        } else {
+        } else if (message.isMedia) {
             let messageContent = '';
             
             // Если есть reply_to, добавляем блок с ответом
@@ -2557,20 +2558,10 @@ function openFileSelector() {
 }
 
 function handleFileSelect(e) {
-    const mediaSendModal = document.getElementById('media-send-modal');
-    const mediaSendOverlay = document.getElementById('media-send-overlay');
-    const imagePreview = document.getElementById('image-preview');
-    const videoPreview = document.getElementById('video-preview');
+    const files = e.target.files;
+    if (files.length === 0) return;
     
-    if (!mediaSendModal || !mediaSendOverlay || !imagePreview || !videoPreview) {
-        console.error('Media send elements not found');
-        return;
-    }
-    
-    selectedFiles = Array.from(e.target.files);
-    if (selectedFiles.length === 0) return;
-    
-    const file = selectedFiles[0];
+    const file = files[0];
     currentMediaType = file.type.startsWith('video/') ? 'video' : 'photo';
     
     // Показываем соответствующее превью
@@ -2597,16 +2588,76 @@ function handleFileSelect(e) {
     mediaCaptionInput.value = '';
     mediaCaptionInput.focus();
 }
-
-mediaAddButton.addEventListener('click', () => {
-    openFileSelector();
+// Обработчик отправки медиа
+mediaSendButton.addEventListener('click', async function() {
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('Пожалуйста, выберите файл');
+        return;
+    }
+    
+    const caption = mediaCaptionInput.value.trim();
+    
+    try {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const fileData = event.target.result.split(',')[1];
+            const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+            
+            const result = await eel.send_media_message(
+                localStorage.getItem('user_id'),
+                currentChatUserId,
+                fileData,
+                fileType,
+                file.name,
+                caption
+            )();
+            
+            if (result.success) {
+                const message = {
+                    id: result.message_id,
+                    sender_id: localStorage.getItem('user_id'),
+                    receiver_id: currentChatUserId,
+                    text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
+                    timestamp: result.timestamp,
+                    read: result.read,
+                    isMedia: true,
+                    mediaType: fileType,
+                    mediaData: fileData,
+                    fileName: file.name
+                };
+                
+                addMessageToChat(message, true, true);
+                lastMessageId = message.id;
+                
+                // Обновляем кеш чата
+                if (activeChats[currentChatUserId]) {
+                    const messagesContainer = document.getElementById('chat-messages');
+                    activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                    activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                }
+                
+                // Обновляем последнее сообщение на карточке
+                updateLastMessageOnUserCard(
+                    currentChatUserId, 
+                    fileType === 'video' ? 'Видео' : 'Фото', 
+                    true
+                );
+                
+                closeMediaModal();
+            } else {
+                alert('Ошибка при отправке: ' + result.message);
+            }
+        };
+        reader.readAsDataURL(file);
+    } catch (error) {
+        console.error('Ошибка отправки медиа:', error);
+        alert('Ошибка при отправке файла');
+    }
 });
 
 mediaCancelButton.addEventListener('click', closeMediaModal);
-
 mediaSendOverlay.addEventListener('click', closeMediaModal);
-
-mediaSendButton.addEventListener('click', sendMedia);
 
 function closeMediaModal() {
     mediaSendOverlay.classList.add('hidden');
@@ -2614,7 +2665,7 @@ function closeMediaModal() {
     selectedFiles = [];
 }
 
-async function sendMedia() {
+function sendMedia() {
     if (selectedFiles.length === 0) {
         alert('Пожалуйста, выберите файл');
         return;
@@ -2623,29 +2674,9 @@ async function sendMedia() {
     const caption = mediaCaptionInput.value.trim();
     const file = selectedFiles[0];
     
-    try {
-        // Читаем файл как base64
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        
-        reader.onload = async () => {
-            const base64Data = reader.result.split(',')[1];
-            const fileType = file.type.startsWith('video/') ? 'video' : 'image';
-            
-            // Здесь должна быть логика отправки на сервер
-            // Временно просто показываем уведомление
-            alert(`Файл (${fileType}) готов к отправке!${caption ? '\nТекст: ' + caption : ''}`);
-            
-            closeMediaModal();
-        };
-        
-        reader.onerror = () => {
-            throw new Error('Ошибка чтения файла');
-        };
-    } catch (error) {
-        console.error('Ошибка отправки медиа:', error);
-        alert('Ошибка при отправке файла');
-    }
+    console.log('Отправка файла:', file, 'с текстом:', caption);
+    
+    closeMediaModal();
 }
 
 // Обработчик нажатия ESC для закрытия модального окна
