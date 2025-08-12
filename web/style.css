@@ -1880,8 +1880,9 @@ body {
     height: 100%;
     object-fit: cover;
     background-color: #000;
-}
 
+
+}
 .video-loading {
     position: absolute;
     top: 0;
@@ -1946,6 +1947,9 @@ body {
     justify-content: center;
     align-items: center;
     z-index: 1000;
+
+
+
 }
 .video-loading-content {
     background-color: white;

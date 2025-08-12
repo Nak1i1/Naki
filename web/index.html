@@ -705,6 +705,14 @@ document.addEventListener('click', function(e) {
 });
 
 async function loadVideoMessage(messageId) {
+
+    const progressElement = loadingOverlay.querySelector('.video-loading-progress');
+const totalSize = response.file_size;
+let loaded = 0;
+const updateProgress = (chunkSize) => {
+    loaded += chunkSize;
+    progressElement.textContent = `${(loaded / (1024 * 1024)).toFixed(2)} MB / ${(totalSize / (1024 * 1024)).toFixed(2)} MB`;
+};
     try {
         const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
         const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
@@ -718,6 +726,7 @@ async function loadVideoMessage(messageId) {
             <div class="video-loading-content">
                 <div class="video-loading-spinner"></div>
                 <div class="video-loading-text">Загрузка видео...</div>
+                <div class="video-loading-progress">0 MB / 0 MB</div>
                 <button class="video-loading-cancel">Отмена</button>
             </div>
         `;
@@ -798,7 +807,7 @@ async function sendMedia() {
                         read: result.read,
                         isMedia: true,
                         mediaType: fileType,
-                        mediaPath: result.media_path,  // Сохраняем путь к файлу
+                        file_id: result.file_id,  // Сохраняем ID файла
                         filename: file.name
                     };
                     
@@ -1386,11 +1395,22 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
             const videoContainer = document.createElement('div');
             videoContainer.className = 'video-message';
             
-            const videoPreview = document.createElement('video');
-            videoPreview.src = `data:video/mp4;base64,${message.mediaData}`;
-            videoPreview.className = 'video-preview';
-            videoPreview.controls = true;
+            // Создаем элемент загрузки
+            const loadingElement = document.createElement('div');
+            loadingElement.className = 'video-loading';
+            loadingElement.dataset.messageId = message.id;
+            loadingElement.innerHTML = `
+                <div class="video-load-icon"></div>
+                <div class="video-load-text">Загрузить видео</div>
+            `;
             
+            // Создаем элемент видео (скрытый до загрузки)
+            const videoPreview = document.createElement('video');
+            videoPreview.className = 'video-preview hidden';
+            videoPreview.controls = true;
+            videoPreview.dataset.messageId = message.id;
+            
+            videoContainer.appendChild(loadingElement);
             videoContainer.appendChild(videoPreview);
             mediaContainer.appendChild(videoContainer);
         }
@@ -1445,6 +1465,69 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     }
     
     return messageElement;
+}
+
+// Добавим обработчик для загрузки видео
+document.addEventListener('click', function(e) {
+    const videoLoadElement = e.target.closest('.video-loading');
+    if (videoLoadElement) {
+        const messageId = videoLoadElement.dataset.messageId;
+        loadVideoMessage(messageId);
+    }
+});
+
+async function loadVideoMessage(messageId) {
+    try {
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) return;
+        
+        // Показываем оверлей загрузки
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'video-loading-overlay';
+        loadingOverlay.innerHTML = `
+            <div class="video-loading-content">
+                <div class="video-loading-spinner"></div>
+                <div class="video-loading-text">Загрузка видео...</div>
+                <button class="video-loading-cancel">Отмена</button>
+            </div>
+        `;
+        
+        document.body.appendChild(loadingOverlay);
+        
+        // Получаем данные видео
+        const response = await eel.get_media_message(messageId)();
+        if (!response.success) {
+            throw new Error(response.message);
+        }
+        
+        // Устанавливаем источник видео как base64
+        videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        loadingElement.classList.add('hidden');
+        videoElement.classList.remove('hidden');
+        loadingOverlay.remove();
+        
+        // Помечаем как прочитанное, если это не мое сообщение
+        if (!videoElement.closest('.my-message')) {
+            await eel.mark_messages_as_read(
+                videoElement.closest('.message').dataset.sender_id,
+                localStorage.getItem('user_id')
+            )();
+        }
+        
+        // Обработчик отмены загрузки
+        const cancelBtn = loadingOverlay.querySelector('.video-loading-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                loadingOverlay.remove();
+            });
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки видео:', error);
+        alert('Ошибка при загрузке видео');
+        document.querySelector('.video-loading-overlay')?.remove();
+    }
 }
 
 

@@ -7,6 +7,8 @@ import pytz
 import os
 import base64
 from pathlib import Path
+import gridfs
+
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -427,11 +429,6 @@ def get_reply_state(user_id, chat_id):
 @eel.expose
 def send_media_message(sender_id, receiver_id, media_data, media_type, filename, caption=None):
     try:
-        # Сохраняем файл на диск
-        save_result = save_media_file(media_data, filename)
-        if not save_result["success"]:
-            return {"success": False, "message": "Failed to save media file"}
-        
         sender = users_collection.find_one({"_id": ObjectId(sender_id)})
         receiver = users_collection.find_one({"_id": ObjectId(receiver_id)})
         
@@ -443,6 +440,10 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
         
         is_self_message = sender_id == receiver_id
         
+        # Сохраняем медиа данные напрямую в MongoDB (GridFS)
+        fs = gridfs.GridFS(db)
+        file_id = fs.put(base64.b64decode(media_data), filename=filename, content_type=f"{media_type}/*")
+        
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
@@ -452,9 +453,9 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
             "local_timestamp": local_time_str,
             "is_media": True,
             "media_type": media_type,
-            "media_path": save_result["path"],  # Сохраняем путь к файлу
+            "file_id": file_id,  # Сохраняем ID файла в GridFS
             "filename": filename,
-            "file_size": len(media_data) * 3 / 4  # Примерный расчет размера
+            "file_size": len(base64.b64decode(media_data))
         }
         
         result = messages_collection.insert_one(message_data)
@@ -464,11 +465,32 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
             "message_id": str(result.inserted_id),
             "timestamp": local_time_str,
             "read": is_self_message,
-            "media_path": save_result["path"]  # Возвращаем путь к файлу
+            "file_id": str(file_id)  # Возвращаем ID файла
         }
     except Exception as e:
         logger.error(f"Error sending media message: {str(e)}")
         return {"success": False, "message": "Error sending media message"}
+
+@eel.expose
+def get_media_message(message_id):
+    try:
+        message = messages_collection.find_one({"_id": ObjectId(message_id)})
+        if message and message.get("is_media"):
+            fs = gridfs.GridFS(db)
+            media_file = fs.get(message["file_id"])
+            media_data = base64.b64encode(media_file.read()).decode('utf-8')
+            
+            return {
+                "success": True,
+                "media_data": media_data,
+                "media_type": message["media_type"],
+                "filename": message["filename"],
+                "file_size": message.get("file_size", 0)
+            }
+        return {"success": False, "message": "Media message not found"}
+    except Exception as e:
+        logger.error(f"Error getting media message: {e}")
+        return {"success": False, "message": "Error getting media message"}
     
     
 @eel.expose
@@ -494,35 +516,6 @@ def save_media_file(media_data, filename):
         return {"success": False}
     
 
-
-@eel.expose
-def get_media_message(message_id):
-    try:
-        message = messages_collection.find_one({"_id": ObjectId(message_id)})
-        if message and message.get("is_media"):
-            # Проверяем, существует ли файл
-            if not message.get("media_path"):
-                return {"success": False, "message": "Media path not specified"}
-                
-            media_path = Path(message["media_path"])
-            if not media_path.exists():
-                return {"success": False, "message": "Media file not found"}
-                
-            # Читаем файл и возвращаем как base64
-            with open(media_path, 'rb') as f:
-                media_data = base64.b64encode(f.read()).decode('utf-8')
-                
-            return {
-                "success": True,
-                "media_data": media_data,
-                "media_type": message["media_type"],
-                "filename": message["filename"],
-                "file_size": message.get("file_size", 0)
-            }
-        return {"success": False, "message": "Media message not found"}
-    except Exception as e:
-        logger.error(f"Error getting media message: {e}")
-        return {"success": False, "message": "Error getting media message"}
     
     
 @eel.expose
