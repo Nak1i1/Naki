@@ -501,6 +501,9 @@ def get_media_message(message_id):
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message and message.get("is_media"):
             # Проверяем, существует ли файл
+            if not message.get("media_path"):
+                return {"success": False, "message": "Media path not specified"}
+                
             media_path = Path(message["media_path"])
             if not media_path.exists():
                 return {"success": False, "message": "Media file not found"}
@@ -646,8 +649,10 @@ def get_chat_history(user1_id, user2_id):
             if msg.get("is_media"):
                 m["isMedia"] = True
                 m["mediaType"] = msg["media_type"]
-                m["mediaPath"] = msg["media_path"]
-                m["filename"] = msg["filename"]
+                # Проверяем наличие media_path перед добавлением
+                if msg.get("media_path"):
+                    m["mediaPath"] = msg["media_path"]
+                m["filename"] = msg.get("filename", "")
                 m["fileSize"] = msg.get("file_size", 0)
                 
             if msg.get("is_voice"):
