@@ -427,11 +427,11 @@ def get_reply_state(user_id, chat_id):
 @eel.expose
 def send_media_message(sender_id, receiver_id, media_data, media_type, filename, caption=None):
     try:
-        # Проверка размера файла (например, не более 10MB)
-        file_size = len(media_data) * 3 / 4  # Примерный расчет размера в байтах
-        if file_size > 10 * 1024 * 1024:  # 10MB
-            return {"success": False, "message": "Файл слишком большой (максимум 10MB)"}
-
+        # Сохраняем файл на диск
+        save_result = save_media_file(media_data, filename)
+        if not save_result["success"]:
+            return {"success": False, "message": "Failed to save media file"}
+        
         sender = users_collection.find_one({"_id": ObjectId(sender_id)})
         receiver = users_collection.find_one({"_id": ObjectId(receiver_id)})
         
@@ -452,25 +452,46 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
             "local_timestamp": local_time_str,
             "is_media": True,
             "media_type": media_type,
-            "media_data": media_data,
+            "media_path": save_result["path"],  # Сохраняем путь к файлу
             "filename": filename,
-            "file_size": file_size
+            "file_size": len(media_data) * 3 / 4  # Примерный расчет размера
         }
         
         result = messages_collection.insert_one(message_data)
-        
-        logger.info(f"Медиа сообщение отправлено: {filename}, размер: {file_size/1024/1024:.2f}MB")
         
         return {
             "success": True,
             "message_id": str(result.inserted_id),
             "timestamp": local_time_str,
-            "read": is_self_message
+            "read": is_self_message,
+            "media_path": save_result["path"]  # Возвращаем путь к файлу
         }
     except Exception as e:
         logger.error(f"Error sending media message: {str(e)}")
         return {"success": False, "message": "Error sending media message"}
     
+    
+@eel.expose
+def save_media_file(media_data, filename):
+    try:
+        # Создаем папку для хранения медиа в директории приложения
+        media_dir = Path('messenger_media')
+        media_dir.mkdir(exist_ok=True)
+        
+        # Генерируем уникальное имя файла
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        ext = Path(filename).suffix
+        unique_filename = f"{timestamp}{ext}"
+        
+        # Сохраняем файл
+        file_path = media_dir / unique_filename
+        with open(file_path, 'wb') as f:
+            f.write(base64.b64decode(media_data))
+            
+        return {"success": True, "path": str(file_path)}
+    except Exception as e:
+        logger.error(f"Error saving media file: {e}")
+        return {"success": False}
     
 
 
@@ -479,9 +500,18 @@ def get_media_message(message_id):
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message and message.get("is_media"):
+            # Проверяем, существует ли файл
+            media_path = Path(message["media_path"])
+            if not media_path.exists():
+                return {"success": False, "message": "Media file not found"}
+                
+            # Читаем файл и возвращаем как base64
+            with open(media_path, 'rb') as f:
+                media_data = base64.b64encode(f.read()).decode('utf-8')
+                
             return {
                 "success": True,
-                "media_data": message["media_data"],
+                "media_data": media_data,
                 "media_type": message["media_type"],
                 "filename": message["filename"],
                 "file_size": message.get("file_size", 0)
@@ -611,6 +641,15 @@ def get_chat_history(user1_id, user2_id):
                 "reply_text": reply_message["text"] if reply_message else None,
                 "reply_sender_id": str(reply_message["sender_id"]) if reply_message else None
             }
+            
+            # Добавляем информацию о медиафайлах
+            if msg.get("is_media"):
+                m["isMedia"] = True
+                m["mediaType"] = msg["media_type"]
+                m["mediaPath"] = msg["media_path"]
+                m["filename"] = msg["filename"]
+                m["fileSize"] = msg.get("file_size", 0)
+                
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
                 m["voiceData"] = msg.get("voice_data")
@@ -621,6 +660,9 @@ def get_chat_history(user1_id, user2_id):
     except Exception as e:
         logger.error(f"Ошибка получения истории чата: {e}")
         return []
+    
+    
+    
 
 @eel.expose
 def check_new_messages(user_id, last_message_id=None):
