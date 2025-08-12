@@ -1218,7 +1218,8 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
                 const indicator = voiceElement.querySelector('.listen-indicator');
                 if (indicator) indicator.style.opacity = '0';
             }
-        } else if (message.isMedia) {
+        } else {
+            // Обработка обычных текстовых сообщений
             let messageContent = '';
             
             // Если есть reply_to, добавляем блок с ответом
@@ -1240,10 +1241,11 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
                 `;
             }
             
+            // Основное содержимое сообщения
             messageContent += `
                 <div class="message-text">${message.text || ''}</div>
                 <div class="message-info">
-                    <span>${dateString} ${timeString}</span>
+                    <span>${timeString}</span>
                     ${isMyMessage ? (message.read ? '✓✓' : '✓') : ''}
                 </div>
             `;
@@ -1252,12 +1254,8 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
         }
         
         messagesContainer.appendChild(messageElement);
-        
-        // Если это сообщение с ответом, увеличиваем его высоту
-        if (message.reply_to) {
-            messageElement.style.minHeight = '100px';
-        }
     } else if (isMyMessage && !message.isVoiceMessage && !message.is_voice) {
+        // Обновляем статус прочтения для существующих сообщений
         const infoElement = messageElement.querySelector('.message-info');
         if (infoElement) {
             const timeElement = infoElement.querySelector('span');
@@ -1267,7 +1265,10 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
         }
     }
     
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // Прокручиваем вниз только для новых сообщений
+    if (isNewMessage) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
     
     // Сохраняем состояние чата и данные сообщений
     if (currentChatUserId) {
@@ -1280,7 +1281,7 @@ function addMessageToChat(message, isMyMessage, isNewMessage = true) {
         }
         
         activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-        activeChats[currentChatUserId].lastMessageId = lastMessageId;
+        activeChats[currentChatUserId].lastMessageId = message.id;
         
         if (isNewMessage && (message.isVoiceMessage || message.is_voice)) {
             activeChats[currentChatUserId].messagesData.push({
