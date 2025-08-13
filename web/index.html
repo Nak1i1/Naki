@@ -393,6 +393,21 @@ document.getElementById('message-delete-for-me').addEventListener('click', async
     }
 });
 
+async function saveVideoToLocalStorage(messageId, videoData) {
+    try {
+        // Создаем папку для хранения медиа, если ее нет
+        const mediaDir = await eel.create_video_cache_folder()();
+        if (!mediaDir) throw new Error("Не удалось создать папку для медиа");
+        
+        // Сохраняем видео в файл
+        const result = await eel.save_video_to_cache(messageId, videoData)();
+        return result.success;
+    } catch (error) {
+        console.error('Ошибка сохранения видео:', error);
+        return false;
+    }
+}
+
 async function handleDelete() {
     if (!currentContextMessage) {
         messageContextMenu.classList.add('hidden');
@@ -1215,14 +1230,23 @@ async function loadChatHistory(userId) {
             
             for (const msg of messages) {
                 const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
-                addMessageToChat(msg, isMyMessage, false);
+                const messageElement = await addMessageToChat(msg, isMyMessage, false);
                 
                 if (msg.isVoiceMessage || msg.is_voice) {
                     messagesData.push({
                         id: msg.id,
-                        voiceData: msg.voiceData,
+                        voiceData: msg.voice_data,
                         duration: msg.duration,
-                        isVoiceMessage: true
+                        isVoiceMessage: true,
+                        listened: msg.listened || false
+                    });
+                } else if (msg.isMedia || msg.is_media) {
+                    messagesData.push({
+                        id: msg.id,
+                        isMedia: true,
+                        mediaType: msg.media_type,
+                        file_id: msg.file_id,
+                        filename: msg.filename
                     });
                 }
             }
@@ -1264,6 +1288,8 @@ async function loadChatHistory(userId) {
             '<div class="error-message">Ошибка загрузки истории сообщений</div>';
     }
 }
+
+
 async function sendMessage(text) {
     if (!currentChatUserId || !text) return;
     
@@ -1364,7 +1390,7 @@ async function sendMessage(text) {
             }
         }
 
-function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
+async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     const messagesContainer = document.getElementById('chat-messages');
     
     // Удаляем сообщение "Нет сообщений", если оно есть
@@ -1373,27 +1399,67 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         noMessagesDiv.remove();
     }
     
+    // Проверяем, что message существует и содержит необходимые свойства
+    if (!message) {
+        console.error('Message is null or undefined');
+        return null;
+    }
+    
     // Создаем элемент сообщения
     const messageElement = document.createElement('div');
     messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
-    messageElement.dataset.id = message.id;
-    messageElement.dataset.sender_id = message.sender_id;
+    messageElement.dataset.id = message.id || '';
+    messageElement.dataset.sender_id = message.sender_id || '';
     
     // Добавляем контент в зависимости от типа сообщения
-    if (message.isMedia) {
+    if (message.isMedia || message.is_media) {
         // Медиа сообщение (фото/видео)
         const mediaContainer = document.createElement('div');
         mediaContainer.className = 'media-message';
         
-        if (message.mediaType === 'image') {
+        const mediaType = message.mediaType || (message.is_media ? message.media_type : null);
+        
+        if (mediaType === 'image') {
+            // Обработка изображений
             const img = document.createElement('img');
-            img.src = `data:image/jpeg;base64,${message.mediaData}`;
             img.className = 'media-preview';
             img.alt = 'Фото';
+            
+            // Проверяем, есть ли данные изображения
+            if (message.mediaData) {
+                img.src = `data:image/jpeg;base64,${message.mediaData}`;
+            } else if (message.file_id) {
+                // Если данных нет, но есть file_id, загружаем с сервера
+                const loadingElement = document.createElement('div');
+                loadingElement.className = 'media-loading';
+                loadingElement.textContent = 'Загрузка...';
+                mediaContainer.appendChild(loadingElement);
+                
+                try {
+                    const response = await eel.get_media_message(message.id)();
+                    if (response.success) {
+                        img.src = `data:image/jpeg;base64,${response.media_data}`;
+                        loadingElement.remove();
+                    } else {
+                        throw new Error(response.message || 'Failed to get image data');
+                    }
+                } catch (error) {
+                    loadingElement.textContent = 'Ошибка загрузки';
+                    console.error('Error loading image:', error);
+                }
+            }
+            
             mediaContainer.appendChild(img);
-        } else if (message.mediaType === 'video') {
+        } else if (mediaType === 'video') {
+            // Обработка видео
             const videoContainer = document.createElement('div');
-            videoContainer.className = 'video-message';
+            videoContainer.className = 'video-message-container';
+            
+            // Создаем элемент для превью видео
+            const videoElement = document.createElement('video');
+            videoElement.className = 'video-preview hidden';
+            videoElement.controls = true;
+            videoElement.dataset.messageId = message.id;
             
             // Создаем элемент загрузки
             const loadingElement = document.createElement('div');
@@ -1404,18 +1470,14 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
                 <div class="video-load-text">Загрузить видео</div>
             `;
             
-            // Создаем элемент видео (скрытый до загрузки)
-            const videoPreview = document.createElement('video');
-            videoPreview.className = 'video-preview hidden';
-            videoPreview.controls = true;
-            videoPreview.dataset.messageId = message.id;
+            loadingElement.addEventListener('click', () => loadVideoMessage(message.id, videoContainer));
             
             videoContainer.appendChild(loadingElement);
-            videoContainer.appendChild(videoPreview);
+            videoContainer.appendChild(videoElement);
             mediaContainer.appendChild(videoContainer);
         }
         
-        if (message.text) {
+        if (message.text && message.text !== '[Видео]' && message.text !== '[Фото]') {
             const caption = document.createElement('div');
             caption.className = 'media-caption';
             caption.textContent = message.text;
@@ -1423,16 +1485,35 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         }
         
         messageElement.appendChild(mediaContainer);
-    } else if (message.isVoiceMessage) {
+    } else if (message.isVoiceMessage || message.is_voice) {
         // Голосовое сообщение
         const voiceMessage = createVoiceMessageElement(message);
         messageElement.appendChild(voiceMessage);
-    } else {
+    } else if (message.text) {
         // Текстовое сообщение
         const textElement = document.createElement('div');
         textElement.className = 'message-text';
         textElement.textContent = message.text;
         messageElement.appendChild(textElement);
+        
+        // Обработка ответов на сообщения
+        if (message.reply_to) {
+            const replyElement = document.createElement('div');
+            replyElement.className = 'message-reply';
+            
+            const isReplyMyMessage = message.reply_sender_id === localStorage.getItem('user_id');
+            const replyAuthor = isReplyMyMessage ? 'Вы' : document.getElementById('chat-username').textContent;
+            
+            replyElement.innerHTML = `
+                <div class="reply-header">
+                    <div class="reply-author">${replyAuthor}</div>
+                </div>
+                <div class="reply-text">${message.reply_text && message.reply_text.length > 50 ? 
+                    message.reply_text.substring(0, 47) + '...' : message.reply_text || ''}</div>
+            `;
+            
+            messageElement.insertBefore(replyElement, textElement);
+        }
     }
     
     // Добавляем информацию о сообщении (время, статус прочтения)
@@ -1440,16 +1521,35 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     infoElement.className = 'message-info';
     
     const timeElement = document.createElement('span');
-    timeElement.textContent = formatMessageTime(message.timestamp);
+    timeElement.textContent = formatMessageTime(message.timestamp || new Date().toISOString());
     infoElement.appendChild(timeElement);
     
-    if (isMyMessage && !message.isVoiceMessage) {
+    if (isMyMessage && !(message.isVoiceMessage || message.is_voice)) {
         const readStatus = document.createElement('span');
         readStatus.textContent = message.read ? '✓✓' : '✓';
         infoElement.appendChild(readStatus);
     }
     
     messageElement.appendChild(infoElement);
+    
+    // Добавляем контекстное меню для сообщения
+    messageElement.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        currentContextMessage = messageElement;
+        
+        const isVideoMessage = (message.isMedia || message.is_media) && 
+                              (message.mediaType === 'video' || message.media_type === 'video');
+        const isVoiceMessage = message.isVoiceMessage || message.is_voice;
+        const isMyMessage = message.sender_id === localStorage.getItem('user_id');
+        
+        // Настраиваем видимость пунктов меню
+        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVideoMessage || isVoiceMessage);
+        document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
+        document.getElementById('message-delete-for-me').classList.toggle('hidden', isMyMessage);
+        
+        // Показываем меню
+        showMessageContextMenu(e);
+    });
     
     // Добавляем сообщение в контейнер
     messagesContainer.appendChild(messageElement);
@@ -1467,6 +1567,72 @@ function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     return messageElement;
 }
 
+
+
+async function loadVideoFromServer(messageId, container) {
+    try {
+        // Показываем индикатор загрузки
+        container.innerHTML = '<div class="video-load-spinner">Загрузка...</div>';
+        
+        // Получаем данные видео с сервера
+        const response = await eel.get_media_message(messageId)();
+        if (!response.success) {
+            throw new Error(response.message || 'Failed to get video data');
+        }
+        
+        // Создаем элемент видео
+        const videoElement = document.createElement('video');
+        videoElement.className = 'video-preview';
+        videoElement.controls = true;
+        videoElement.dataset.messageId = messageId;
+        videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Заменяем индикатор загрузки на видео
+        container.innerHTML = '';
+        container.appendChild(videoElement);
+        
+        return true;
+    } catch (error) {
+        console.error('Error loading video:', error);
+        container.innerHTML = `
+            <div class="video-load-error">
+                Ошибка загрузки
+                <button class="video-retry-btn">Повторить</button>
+            </div>
+        `;
+        
+        // Добавляем обработчик для кнопки повтора
+        container.querySelector('.video-retry-btn').addEventListener('click', () => {
+            loadVideoFromServer(messageId, container);
+        });
+        
+        return false;
+    }
+}
+
+
+// Вспомогательная функция для сохранения видео в локальное хранилище
+async function saveVideoToLocalStorage(messageId, videoData) {
+    try {
+        // Создаем папку для хранения медиа, если ее нет
+        const mediaDir = await eel.create_video_cache_folder()();
+        if (!mediaDir) throw new Error("Не удалось создать папку для медиа");
+        
+        // Сохраняем видео в файл
+        const result = await eel.save_video_to_cache(messageId, videoData)();
+        return result.success;
+    } catch (error) {
+        console.error('Ошибка сохранения видео:', error);
+        return false;
+    }
+}
+
+// Функция для форматирования времени сообщения
+function formatMessageTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
 // Добавим обработчик для загрузки видео
 document.addEventListener('click', function(e) {
     const videoLoadElement = e.target.closest('.video-loading');
@@ -1476,20 +1642,16 @@ document.addEventListener('click', function(e) {
     }
 });
 
-async function loadVideoMessage(messageId) {
+async function loadVideoMessage(messageId, container) {
     try {
-        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
-        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
-        
-        if (!videoElement || !loadingElement) return;
-        
-        // Показываем оверлей загрузки
+        // Показываем индикатор загрузки
         const loadingOverlay = document.createElement('div');
         loadingOverlay.className = 'video-loading-overlay';
         loadingOverlay.innerHTML = `
             <div class="video-loading-content">
                 <div class="video-loading-spinner"></div>
                 <div class="video-loading-text">Загрузка видео...</div>
+                <div class="video-loading-progress">0%</div>
                 <button class="video-loading-cancel">Отмена</button>
             </div>
         `;
@@ -1499,13 +1661,25 @@ async function loadVideoMessage(messageId) {
         // Получаем данные видео
         const response = await eel.get_media_message(messageId)();
         if (!response.success) {
-            throw new Error(response.message);
+            throw new Error(response.message || 'Failed to get video data');
         }
         
-        // Устанавливаем источник видео как base64
+        // Находим элементы в DOM
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) {
+            throw new Error('Video elements not found');
+        }
+        
+        // Устанавливаем источник видео
         videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Скрываем элемент загрузки и показываем видео
         loadingElement.classList.add('hidden');
         videoElement.classList.remove('hidden');
+        
+        // Удаляем оверлей загрузки
         loadingOverlay.remove();
         
         // Помечаем как прочитанное, если это не мое сообщение
@@ -1525,15 +1699,22 @@ async function loadVideoMessage(messageId) {
         }
     } catch (error) {
         console.error('Ошибка загрузки видео:', error);
-        alert('Ошибка при загрузке видео');
+        
+        // Обновляем элемент загрузки с сообщением об ошибке
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">Ошибка загрузки</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadVideoMessage(messageId, container);
+            });
+        }
+        
         document.querySelector('.video-loading-overlay')?.remove();
     }
-}
-
-
-function formatMessageTime(timestamp) {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
 

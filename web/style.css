@@ -1647,9 +1647,7 @@ body {
     object-fit: contain;
 }
 
-.video-preview {
-    width: 100%;
-}
+
 
 .media-caption-input {
     width: 100%;
@@ -1707,14 +1705,15 @@ body {
 }
 
 .media-message {
-    margin-bottom: 8px;
-    max-width: 100%;
+    max-width: 80%;
+    margin: 5px 0;
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 .media-preview {
     max-width: 100%;
     max-height: 300px;
-    border-radius: 8px;
     display: block;
 }
 
@@ -1739,12 +1738,7 @@ body {
     aspect-ratio: 16/9;
 }
 
-.video-preview {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background-color: #000;
-}
+
 
 .video-loading {
     position: absolute;
@@ -1761,26 +1755,16 @@ body {
     cursor: pointer;
 }
 
-.video-load-icon {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: white;
-    animation: spin 1s linear infinite;
-    margin-bottom: 10px;
-}
+
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    to { transform: rotate(360deg); }
 }
-
 .video-load-text {
-    font-size: 14px;
     margin-top: 5px;
+    font-size: 12px;
+    color: #666;
 }
-
 .video-info {
     display: flex;
     justify-content: space-between;
@@ -1798,16 +1782,13 @@ body {
 
 /* Video loading overlay */
 .video-message-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.8);
-    z-index: 1000;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    position: relative; /* Изменяем с fixed на relative */
+    width: 100%;
+    background-color: transparent; /* Убираем черный фон */
+    z-index: 1; /* Уменьшаем z-index */
+    display: block;
+    aspect-ratio: 16/9;
+    margin-bottom: 10px;
 }
 
 .video-loading-content {
@@ -1819,13 +1800,13 @@ body {
 }
 
 .video-loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #f3f3f3;
-    border-top: 5px solid #4CAF50;
+    width: 30px;
+    height: 30px;
+    border: 3px solid rgba(0, 0, 0, 0.1);
     border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 15px;
+    border-top-color: #4CAF50;
+    animation: spin 1s ease-in-out infinite;
+    margin: 0 auto;
 }
 
 .video-loading-text {
@@ -1877,40 +1858,34 @@ body {
 
 .video-preview {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto; /* Избегаем фиксированной высоты */
+    max-height: 300px; /* Ограничиваем максимальную высоту */
+    object-fit: contain;
     background-color: #000;
-
-
+    border-radius: 8px;
 }
 .video-loading {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
+    padding: 10px;
     cursor: pointer;
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    margin: 5px 0;
 }
 
 .video-load-icon {
     width: 40px;
     height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: white;
-    animation: spin 1s linear infinite;
-    margin-bottom: 10px;
+    background-image: url('https://cdn-icons-png.flaticon.com/512/3589/3589068.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0.7;
 }
 
-.video-load-text {
-    font-size: 14px;
-}
 
 .video-info {
     display: flex;
@@ -1930,10 +1905,7 @@ body {
     max-width: 70%;
 }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+
 
 /* Оверлей загрузки */
 .video-loading-overlay {
@@ -1958,15 +1930,7 @@ body {
     text-align: center;
 }
 
-.video-loading-spinner {
-    border: 4px solid rgba(0, 0, 0, 0.1);
-    border-radius: 50%;
-    border-top: 4px solid #3498db;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 15px;
-}
+
 
 .video-loading-text {
     font-size: 16px;
