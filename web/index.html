@@ -720,28 +720,20 @@ document.addEventListener('click', function(e) {
 });
 
 async function loadVideoMessage(messageId) {
-
-    const progressElement = loadingOverlay.querySelector('.video-loading-progress');
-const totalSize = response.file_size;
-let loaded = 0;
-const updateProgress = (chunkSize) => {
-    loaded += chunkSize;
-    progressElement.textContent = `${(loaded / (1024 * 1024)).toFixed(2)} MB / ${(totalSize / (1024 * 1024)).toFixed(2)} MB`;
-};
     try {
         const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
         const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
         
         if (!videoElement || !loadingElement) return;
         
-        // Показываем оверлей загрузки
+        // Показываем индикатор загрузки
         const loadingOverlay = document.createElement('div');
         loadingOverlay.className = 'video-loading-overlay';
         loadingOverlay.innerHTML = `
             <div class="video-loading-content">
                 <div class="video-loading-spinner"></div>
                 <div class="video-loading-text">Загрузка видео...</div>
-                <div class="video-loading-progress">0 MB / 0 MB</div>
+                <div class="video-loading-progress">0%</div>
                 <button class="video-loading-cancel">Отмена</button>
             </div>
         `;
@@ -751,13 +743,17 @@ const updateProgress = (chunkSize) => {
         // Получаем данные видео
         const response = await eel.get_media_message(messageId)();
         if (!response.success) {
-            throw new Error(response.message);
+            throw new Error(response.message || 'Failed to get video data');
         }
         
-        // Устанавливаем источник видео как base64
+        // Устанавливаем источник видео
         videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Скрываем элемент загрузки и показываем видео
         loadingElement.classList.add('hidden');
         videoElement.classList.remove('hidden');
+        
+        // Удаляем оверлей загрузки
         loadingOverlay.remove();
         
         // Помечаем как прочитанное, если это не мое сообщение
@@ -777,7 +773,20 @@ const updateProgress = (chunkSize) => {
         }
     } catch (error) {
         console.error('Ошибка загрузки видео:', error);
-        alert('Ошибка при загрузке видео');
+        
+        // Обновляем элемент загрузки с сообщением об ошибке
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">Ошибка загрузки</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadVideoMessage(messageId);
+            });
+        }
+        
         document.querySelector('.video-loading-overlay')?.remove();
     }
 }
@@ -822,7 +831,7 @@ async function sendMedia() {
                         read: result.read,
                         isMedia: true,
                         mediaType: fileType,
-                        file_id: result.file_id,  // Сохраняем ID файла
+                        mediaData: fileData, // Сохраняем данные медиа для немедленного отображения
                         filename: file.name
                     };
                     
@@ -833,6 +842,24 @@ async function sendMedia() {
                         const messagesContainer = document.getElementById('chat-messages');
                         activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
                         activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                        
+                        // Обновляем messagesData с медиаданными
+                        if (!activeChats[currentChatUserId].messagesData) {
+                            activeChats[currentChatUserId].messagesData = [];
+                        }
+                        
+                        // Удаляем старую запись, если есть
+                        activeChats[currentChatUserId].messagesData = activeChats[currentChatUserId].messagesData.filter(m => m.id !== message.id);
+                        
+                        // Добавляем новую запись с медиаданными
+                        activeChats[currentChatUserId].messagesData.push({
+                            id: message.id,
+                            isMedia: true,
+                            mediaType: fileType,
+                            mediaData: fileData,
+                            text: message.text,
+                            filename: file.name
+                        });
                     }
                     
                     updateLastMessageOnUserCard(
@@ -998,6 +1025,24 @@ async function openChat(userId) {
         console.error('User data not found for ID:', userId);
         document.getElementById('chat-messages').innerHTML = 
             '<div class="error-message">Ошибка загрузки данных пользователя</div>';
+    }
+}
+
+
+async function preloadMediaForChat(userId) {
+    if (!activeChats[userId]?.messagesData) return;
+    
+    for (const message of activeChats[userId].messagesData) {
+        if (message.isMedia && !message.mediaData) {
+            try {
+                const response = await eel.get_media_message(message.id)();
+                if (response.success) {
+                    message.mediaData = response.media_data;
+                }
+            } catch (error) {
+                console.error('Error preloading media:', error);
+            }
+        }
     }
 }
 
@@ -1222,6 +1267,15 @@ async function loadChatHistory(userId) {
         const messagesContainer = document.getElementById('chat-messages');
         messagesContainer.innerHTML = '';
 
+        // Инициализируем activeChats[userId] если его нет
+        if (!activeChats[userId]) {
+            activeChats[userId] = {
+                messages: '',
+                lastMessageId: null,
+                messagesData: []  // Добавляем инициализацию messagesData
+            };
+        }
+
         if (messages && Array.isArray(messages) && messages.length > 0) {
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
@@ -1232,7 +1286,24 @@ async function loadChatHistory(userId) {
                 const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
                 const messageElement = await addMessageToChat(msg, isMyMessage, false);
                 
-                if (msg.isVoiceMessage || msg.is_voice) {
+                // Сохраняем данные медиафайлов для последующего использования
+                if (msg.isMedia || msg.is_media) {
+                    const mediaData = {
+                        id: msg.id,
+                        isMedia: true,
+                        mediaType: msg.media_type,
+                        file_id: msg.file_id,
+                        filename: msg.filename,
+                        text: msg.text
+                    };
+                    
+                    // Если есть данные медиа в сообщении, сохраняем их
+                    if (msg.mediaData) {
+                        mediaData.mediaData = msg.mediaData;
+                    }
+                    
+                    messagesData.push(mediaData);
+                } else if (msg.isVoiceMessage || msg.is_voice) {
                     messagesData.push({
                         id: msg.id,
                         voiceData: msg.voice_data,
@@ -1240,14 +1311,13 @@ async function loadChatHistory(userId) {
                         isVoiceMessage: true,
                         listened: msg.listened || false
                     });
-                } else if (msg.isMedia || msg.is_media) {
+                } else {
+                    // Для текстовых сообщений тоже сохраняем базовые данные
                     messagesData.push({
                         id: msg.id,
-                        isMedia: true,
-                        mediaType: msg.media_type,
-                        file_id: msg.file_id,
-                        filename: msg.filename,
-                        text: msg.text
+                        text: msg.text,
+                        sender_id: msg.sender_id,
+                        timestamp: msg.timestamp
                     });
                 }
             }
@@ -1257,7 +1327,7 @@ async function loadChatHistory(userId) {
             activeChats[userId] = {
                 messages: messagesContainer.innerHTML,
                 lastMessageId: lastMessageId,
-                messagesData: messagesData
+                messagesData: messagesData // Сохраняем данные сообщений
             };
             
             // Прокручиваем вниз только если позиция не сохранена
@@ -1280,7 +1350,7 @@ async function loadChatHistory(userId) {
             activeChats[userId] = {
                 messages: messagesContainer.innerHTML,
                 lastMessageId: null,
-                messagesData: []
+                messagesData: []  // Инициализируем пустым массивом
             };
         }
     } catch (error) {
@@ -1401,7 +1471,6 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         noMessagesDiv.remove();
     }
     
-    // Проверяем, что message существует и содержит необходимые свойства
     if (!message) {
         console.error('Message is null or undefined');
         return null;
@@ -1415,51 +1484,102 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     
     // Добавляем контент в зависимости от типа сообщения
     if (message.isMedia || message.is_media) {
-        // Медиа сообщение (фото/видео)
         const mediaContainer = document.createElement('div');
         mediaContainer.className = 'media-message';
         
         const mediaType = message.mediaType || (message.is_media ? message.media_type : null);
         
         if (mediaType === 'image') {
-            // Обработка изображений
             const img = document.createElement('img');
             img.className = 'media-preview';
             img.alt = 'Фото';
+            img.loading = 'lazy';
             
-            // Создаем элемент загрузки
-            const loadingElement = document.createElement('div');
-            loadingElement.className = 'media-loading';
-            loadingElement.textContent = 'Загрузка...';
-            mediaContainer.appendChild(loadingElement);
-            
-            // Загружаем изображение с сервера
-            try {
-                const response = await eel.get_media_message(message.id)();
-                if (response.success) {
-                    img.src = `data:image/jpeg;base64,${response.media_data}`;
-                    loadingElement.remove();
-                } else {
-                    throw new Error(response.message || 'Failed to get image data');
+            // Проверяем, есть ли данные в кеше активного чата
+            let mediaDataFromCache = null;
+            if (activeChats[currentChatUserId]?.messagesData) {
+                const cachedMessage = activeChats[currentChatUserId].messagesData.find(m => m.id === message.id);
+                if (cachedMessage && cachedMessage.mediaData) {
+                    mediaDataFromCache = cachedMessage.mediaData;
                 }
-            } catch (error) {
-                console.error('Error loading image:', error);
-                loadingElement.textContent = 'Ошибка загрузки';
             }
             
-            mediaContainer.appendChild(img);
+            if (mediaDataFromCache) {
+                // Используем данные из кеша
+                img.src = `data:image/jpeg;base64,${mediaDataFromCache}`;
+                mediaContainer.appendChild(img);
+            } else if (message.mediaData) {
+                // Используем данные из сообщения (если они есть)
+                img.src = `data:image/jpeg;base64,${message.mediaData}`;
+                mediaContainer.appendChild(img);
+                
+                // Сохраняем в кеш активного чата
+                if (activeChats[currentChatUserId] && !activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
+                const existingIndex = activeChats[currentChatUserId]?.messagesData?.findIndex(m => m.id === message.id) || -1;
+                if (existingIndex !== -1) {
+                    activeChats[currentChatUserId].messagesData[existingIndex].mediaData = message.mediaData;
+                } else {
+                    activeChats[currentChatUserId].messagesData.push({
+                        id: message.id,
+                        isMedia: true,
+                        mediaType: 'image',
+                        mediaData: message.mediaData,
+                        text: message.text
+                    });
+                }
+            } else {
+                // Загружаем с сервера
+                const loadingElement = document.createElement('div');
+                loadingElement.className = 'media-loading';
+                loadingElement.textContent = 'Загрузка...';
+                mediaContainer.appendChild(loadingElement);
+                
+                try {
+                    const response = await eel.get_media_message(message.id)();
+                    if (response.success) {
+                        img.src = `data:image/jpeg;base64,${response.media_data}`;
+                        loadingElement.remove();
+                        mediaContainer.appendChild(img);
+                        
+                        // Сохраняем в кеш активного чата
+                        if (activeChats[currentChatUserId] && !activeChats[currentChatUserId].messagesData) {
+                            activeChats[currentChatUserId].messagesData = [];
+                        }
+                        
+                        const existingIndex = activeChats[currentChatUserId]?.messagesData?.findIndex(m => m.id === message.id) || -1;
+                        if (existingIndex !== -1) {
+                            activeChats[currentChatUserId].messagesData[existingIndex].mediaData = response.media_data;
+                        } else {
+                            activeChats[currentChatUserId].messagesData.push({
+                                id: message.id,
+                                isMedia: true,
+                                mediaType: 'image',
+                                mediaData: response.media_data,
+                                text: message.text
+                            });
+                        }
+                    } else {
+                        throw new Error(response.message || 'Failed to get image data');
+                    }
+                } catch (error) {
+                    console.error('Error loading image:', error);
+                    loadingElement.textContent = 'Ошибка загрузки';
+                    loadingElement.classList.add('error');
+                }
+            }
         } else if (mediaType === 'video') {
-            // Обработка видео
+            // Обработка видео (аналогично изображениям)
             const videoContainer = document.createElement('div');
             videoContainer.className = 'video-message-container';
             
-            // Создаем элемент для превью видео
             const videoElement = document.createElement('video');
             videoElement.className = 'video-preview hidden';
             videoElement.controls = true;
             videoElement.dataset.messageId = message.id;
             
-            // Создаем элемент загрузки
             const loadingElement = document.createElement('div');
             loadingElement.className = 'video-loading';
             loadingElement.dataset.messageId = message.id;
@@ -1515,7 +1635,7 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         }
     }
     
-    // Добавляем информацию о сообщении (время, статус прочтения)
+    // Добавляем информацию о сообщении
     const infoElement = document.createElement('div');
     infoElement.className = 'message-info';
     
@@ -1541,17 +1661,45 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         const isVoiceMessage = message.isVoiceMessage || message.is_voice;
         const isMyMessage = message.sender_id === localStorage.getItem('user_id');
         
-        // Настраиваем видимость пунктов меню
         document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVideoMessage || isVoiceMessage);
         document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
         document.getElementById('message-delete-for-me').classList.toggle('hidden', isMyMessage);
         
-        // Показываем меню
         showMessageContextMenu(e);
     });
     
     // Добавляем сообщение в контейнер
     messagesContainer.appendChild(messageElement);
+    
+    // Сохраняем данные сообщения в кеш активного чата
+    if ((message.isMedia || message.is_media) && activeChats[currentChatUserId]?.messagesData) {
+        if (!activeChats[currentChatUserId].messagesData.find(m => m.id === message.id)) {
+            if (!activeChats[currentChatUserId]) {
+                activeChats[currentChatUserId] = {
+                    messages: '',
+                    lastMessageId: null,
+                    messagesData: []
+                };
+            }
+            
+            if (!activeChats[currentChatUserId].messagesData) {
+                activeChats[currentChatUserId].messagesData = [];
+            }
+            
+            // Для медиафайлов сохраняем данные
+            if (message.isMedia || message.is_media) {
+                const mediaData = {
+                    id: message.id,
+                    isMedia: true,
+                    mediaType: message.mediaType || message.media_type,
+                    text: message.text,
+                    mediaData: message.mediaData // Сохраняем данные медиа
+                };
+                
+                activeChats[currentChatUserId].messagesData.push(mediaData);
+            }
+        }
+    }
     
     // Прокручиваем вниз, если нужно
     if (scrollToBottom) {
@@ -1565,6 +1713,10 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     
     return messageElement;
 }
+
+
+
+
 
 
 
@@ -1718,41 +1870,41 @@ async function loadVideoMessage(messageId, container) {
 
 
 
-        async function checkForNewMessages() {
-            if (!currentChatUserId) return;
-            
-            try {
-                const newMessages = await eel.check_new_messages(
-                    localStorage.getItem('user_id'),
-                    lastMessageId
-                )();
-                
-                if (newMessages && newMessages.length > 0) {
-                    newMessages.forEach(msg => {
-                        if (msg.sender_id === currentChatUserId) {
-                            addMessageToChat(msg, false, true);
-                            // Обновляем последнее сообщение на карточке
-                            updateLastMessageOnUserCard(currentChatUserId, msg.text, false);
-                        }
-                    });
-                    
-                    lastMessageId = newMessages[newMessages.length - 1].id;
-                    
-                    const messagesContainer = document.getElementById('chat-messages');
-                    activeChats[currentChatUserId] = {
-                        messages: messagesContainer.innerHTML,
-                        lastMessageId: lastMessageId
-                    };
-                    
-                    updateOnlineStatusInContacts();
-                    
-                    // Устанавливаем обработчики для новых голосовых сообщений
-                    setupVoiceMessageHandlers();
+async function checkForNewMessages() {
+    if (!currentChatUserId) return;
+    
+    try {
+        const newMessages = await eel.check_new_messages(
+            localStorage.getItem('user_id'),
+            lastMessageId
+        )();
+        
+        if (newMessages && newMessages.length > 0) {
+            for (const msg of newMessages) {
+                if (msg.sender_id === currentChatUserId) {
+                    await addMessageToChat(msg, false, true);
+                    // Обновляем последнее сообщение на карточке
+                    updateLastMessageOnUserCard(currentChatUserId, msg.text, false);
                 }
-            } catch (error) {
-                console.error('Error checking new messages:', error);
             }
+            
+            lastMessageId = newMessages[newMessages.length - 1].id;
+            
+            const messagesContainer = document.getElementById('chat-messages');
+            activeChats[currentChatUserId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: lastMessageId
+            };
+            
+            updateOnlineStatusInContacts();
+            
+            // Устанавливаем обработчики для новых голосовых сообщений
+            setupVoiceMessageHandlers();
         }
+    } catch (error) {
+        console.error('Error checking new messages:', error);
+    }
+}
         
         async function loadFriends() {
             const user_id = localStorage.getItem('user_id');

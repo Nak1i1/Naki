@@ -440,33 +440,63 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
         
         is_self_message = sender_id == receiver_id
         
-        # Сохраняем медиа данные напрямую в MongoDB (GridFS)
+        # Сохраняем медиа данные в GridFS
         fs = gridfs.GridFS(db)
-        file_id = fs.put(base64.b64decode(media_data), filename=filename, content_type=f"{media_type}/*")
         
-        message_data = {
-            "sender_id": ObjectId(sender_id),
-            "receiver_id": ObjectId(receiver_id),
-            "text": caption or f"[{media_type.capitalize()}]",
-            "timestamp": utc_time,
-            "read": is_self_message,
-            "local_timestamp": local_time_str,
-            "is_media": True,
-            "media_type": media_type,
-            "file_id": file_id,  # Сохраняем ID файла в GridFS
-            "filename": filename,
-            "file_size": len(base64.b64decode(media_data))
-        }
-        
-        result = messages_collection.insert_one(message_data)
-        
-        return {
-            "success": True,
-            "message_id": str(result.inserted_id),
-            "timestamp": local_time_str,
-            "read": is_self_message,
-            "file_id": str(file_id)  # Возвращаем ID файла
-        }
+        try:
+            file_data = base64.b64decode(media_data)
+            file_id = fs.put(file_data, filename=filename, content_type=f"{media_type}/*")
+            
+            message_data = {
+                "sender_id": ObjectId(sender_id),
+                "receiver_id": ObjectId(receiver_id),
+                "text": caption or f"[{media_type.capitalize()}]",
+                "timestamp": utc_time,
+                "read": is_self_message,
+                "local_timestamp": local_time_str,
+                "is_media": True,
+                "media_type": media_type,
+                "file_id": file_id,  # Сохраняем ID файла в GridFS
+                "filename": filename,
+                "file_size": len(file_data)
+            }
+            
+            result = messages_collection.insert_one(message_data)
+            
+            return {
+                "success": True,
+                "message_id": str(result.inserted_id),
+                "timestamp": local_time_str,
+                "read": is_self_message,
+                "file_id": str(file_id)
+            }
+            
+        except Exception as decode_error:
+            logger.error(f"Error processing media data: {decode_error}")
+            # Fallback: сохраняем данные прямо в сообщении
+            message_data = {
+                "sender_id": ObjectId(sender_id),
+                "receiver_id": ObjectId(receiver_id),
+                "text": caption or f"[{media_type.capitalize()}]",
+                "timestamp": utc_time,
+                "read": is_self_message,
+                "local_timestamp": local_time_str,
+                "is_media": True,
+                "media_type": media_type,
+                "media_data": media_data,  # Сохраняем base64 напрямую
+                "filename": filename,
+                "file_size": len(base64.b64decode(media_data))
+            }
+            
+            result = messages_collection.insert_one(message_data)
+            
+            return {
+                "success": True,
+                "message_id": str(result.inserted_id),
+                "timestamp": local_time_str,
+                "read": is_self_message
+            }
+            
     except Exception as e:
         logger.error(f"Error sending media message: {str(e)}")
         return {"success": False, "message": "Error sending media message"}
@@ -476,22 +506,34 @@ def get_media_message(message_id):
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message and message.get("is_media"):
-            # Проверяем, есть ли file_id в сообщении
-            if "file_id" not in message:
-                logger.error(f"Media file ID not found for message {message_id}")
-                return {"success": False, "message": "Media file ID not found"}
-                
-            fs = gridfs.GridFS(db)
-            media_file = fs.get(message["file_id"])
-            media_data = base64.b64encode(media_file.read()).decode('utf-8')
+            # Если есть file_id, используем GridFS
+            if "file_id" in message:
+                fs = gridfs.GridFS(db)
+                try:
+                    media_file = fs.get(message["file_id"])
+                    media_data = base64.b64encode(media_file.read()).decode('utf-8')
+                    
+                    return {
+                        "success": True,
+                        "media_data": media_data,
+                        "media_type": message["media_type"],
+                        "filename": message["filename"],
+                        "file_size": message.get("file_size", 0)
+                    }
+                except gridfs.errors.NoFile:
+                    logger.error(f"File not found in GridFS for message {message_id}")
             
-            return {
-                "success": True,
-                "media_data": media_data,
-                "media_type": message["media_type"],
-                "filename": message["filename"],
-                "file_size": message.get("file_size", 0)
-            }
+            # Если нет file_id, ищем в старом формате (прямо в сообщении)
+            if "media_data" in message:
+                return {
+                    "success": True,
+                    "media_data": message["media_data"],
+                    "media_type": message["media_type"],
+                    "filename": message.get("filename", ""),
+                    "file_size": message.get("file_size", 0)
+                }
+            
+            return {"success": False, "message": "Media data not found"}
         return {"success": False, "message": "Media message not found"}
     except Exception as e:
         logger.error(f"Error getting media message: {e}")
@@ -608,24 +650,24 @@ def get_chat_history(user1_id, user2_id):
                 {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
                 {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
             ],
-            "deleted_for": {"$ne": ObjectId(user1_id)}  # Исключаем сообщения, удаленные для этого пользователя
+            "deleted_for": {"$ne": ObjectId(user1_id)}
         }).sort("timestamp", 1)
         
-        # Помечаем текстовые сообщения как прочитанные, но не голосовые
+        # Помечаем текстовые сообщения как прочитанные
         if user1_id != user2_id:
             messages_collection.update_many(
                 {
                     "sender_id": ObjectId(user2_id),
                     "receiver_id": ObjectId(user1_id),
                     "read": False,
-                    "is_voice": {"$ne": True}  # Не обновляем статус для голосовых
+                    "is_voice": {"$ne": True}
                 },
                 {"$set": {"read": True}}
             )
         
         result = []
         for msg in messages:
-            # Получаем данные сообщения, на которое есть ответ (если есть)
+            # Получаем данные сообщения, на которое есть ответ
             reply_message = None
             if msg.get("reply_to"):
                 reply_message = messages_collection.find_one({"_id": msg["reply_to"]})
@@ -649,14 +691,26 @@ def get_chat_history(user1_id, user2_id):
                 m["mediaType"] = msg["media_type"]
                 m["filename"] = msg.get("filename", "")
                 m["file_size"] = msg.get("file_size", 0)
-                # ВАЖНО: Добавляем file_id всегда, даже если он None
-                m["file_id"] = str(msg["file_id"]) if "file_id" in msg else None
+                
+                # Если есть file_id, пытаемся получить данные через GridFS
+                if "file_id" in msg:
+                    try:
+                        fs = gridfs.GridFS(db)
+                        media_file = fs.get(msg["file_id"])
+                        m["mediaData"] = base64.b64encode(media_file.read()).decode('utf-8')
+                    except gridfs.errors.NoFile:
+                        logger.error(f"File not found in GridFS for message {str(msg['_id'])}")
+                        m["mediaData"] = None
+                # Если есть media_data (старый формат), сохраняем его
+                elif "media_data" in msg:
+                    m["mediaData"] = msg["media_data"]
                     
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
                 m["voice_data"] = msg.get("voice_data")
                 m["duration"] = msg.get("duration", 0)
                 m["visualization"] = msg.get("visualization", [])
+                
             result.append(m)
         return result
     except Exception as e:
