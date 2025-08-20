@@ -1246,7 +1246,8 @@ async function loadChatHistory(userId) {
                         isMedia: true,
                         mediaType: msg.media_type,
                         file_id: msg.file_id,
-                        filename: msg.filename
+                        filename: msg.filename,
+                        text: msg.text
                     });
                 }
             }
@@ -1288,6 +1289,7 @@ async function loadChatHistory(userId) {
             '<div class="error-message">Ошибка загрузки истории сообщений</div>';
     }
 }
+
 
 
 async function sendMessage(text) {
@@ -1425,28 +1427,24 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
             img.className = 'media-preview';
             img.alt = 'Фото';
             
-            // Проверяем, есть ли данные изображения
-            if (message.mediaData) {
-                img.src = `data:image/jpeg;base64,${message.mediaData}`;
-            } else if (message.file_id) {
-                // Если данных нет, но есть file_id, загружаем с сервера
-                const loadingElement = document.createElement('div');
-                loadingElement.className = 'media-loading';
-                loadingElement.textContent = 'Загрузка...';
-                mediaContainer.appendChild(loadingElement);
-                
-                try {
-                    const response = await eel.get_media_message(message.id)();
-                    if (response.success) {
-                        img.src = `data:image/jpeg;base64,${response.media_data}`;
-                        loadingElement.remove();
-                    } else {
-                        throw new Error(response.message || 'Failed to get image data');
-                    }
-                } catch (error) {
-                    loadingElement.textContent = 'Ошибка загрузки';
-                    console.error('Error loading image:', error);
+            // Создаем элемент загрузки
+            const loadingElement = document.createElement('div');
+            loadingElement.className = 'media-loading';
+            loadingElement.textContent = 'Загрузка...';
+            mediaContainer.appendChild(loadingElement);
+            
+            // Загружаем изображение с сервера
+            try {
+                const response = await eel.get_media_message(message.id)();
+                if (response.success) {
+                    img.src = `data:image/jpeg;base64,${response.media_data}`;
+                    loadingElement.remove();
+                } else {
+                    throw new Error(response.message || 'Failed to get image data');
                 }
+            } catch (error) {
+                console.error('Error loading image:', error);
+                loadingElement.textContent = 'Ошибка загрузки';
             }
             
             mediaContainer.appendChild(img);
@@ -1470,7 +1468,7 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
                 <div class="video-load-text">Загрузить видео</div>
             `;
             
-            loadingElement.addEventListener('click', () => loadVideoMessage(message.id, videoContainer));
+            loadingElement.addEventListener('click', () => loadVideoMessage(message.id));
             
             videoContainer.appendChild(loadingElement);
             videoContainer.appendChild(videoElement);
@@ -1485,6 +1483,7 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         }
         
         messageElement.appendChild(mediaContainer);
+
     } else if (message.isVoiceMessage || message.is_voice) {
         // Голосовое сообщение
         const voiceMessage = createVoiceMessageElement(message);

@@ -1963,3 +1963,93 @@ body {
     border-radius: 5px;
     z-index: 100;
 }
+
+.media-message {
+    max-width: 300px;
+    margin: 5px 0;
+}
+
+.media-preview {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.media-loading {
+    padding: 10px;
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+}
+
+.media-caption {
+    margin-top: 5px;
+    padding: 5px;
+    word-break: break-word;
+}
+
+.image-message-container {
+    position: relative;
+    max-width: 300px;
+    margin: 5px 0;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.image-preview {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.image-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    cursor: pointer;
+}
+
+.image-load-icon {
+    width: 40px;
+    height: 40px;
+    background-image: url('https://cdn-icons-png.flaticon.com/512/266/266074.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    margin-bottom: 10px;
+}
+
+.image-load-text {
+    font-size: 14px;
+}
+
+.image-load-error {
+    color: white;
+    text-align: center;
+    padding: 10px;
+}
+
+.image-retry-btn {
+    margin-top: 10px;
+    padding: 5px 10px;
+    background: #4CAF50;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+}
+
+.image-load-spinner {
+    color: white;
+    text-align: center;
+    padding: 20px;
+}

@@ -476,6 +476,11 @@ def get_media_message(message_id):
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message and message.get("is_media"):
+            # Проверяем, есть ли file_id в сообщении
+            if "file_id" not in message:
+                logger.error(f"Media file ID not found for message {message_id}")
+                return {"success": False, "message": "Media file ID not found"}
+                
             fs = gridfs.GridFS(db)
             media_file = fs.get(message["file_id"])
             media_data = base64.b64encode(media_file.read()).decode('utf-8')
@@ -642,15 +647,14 @@ def get_chat_history(user1_id, user2_id):
             if msg.get("is_media"):
                 m["isMedia"] = True
                 m["mediaType"] = msg["media_type"]
-                # Проверяем наличие media_path перед добавлением
-                if msg.get("media_path"):
-                    m["mediaPath"] = msg["media_path"]
                 m["filename"] = msg.get("filename", "")
-                m["fileSize"] = msg.get("file_size", 0)
-                
+                m["file_size"] = msg.get("file_size", 0)
+                # ВАЖНО: Добавляем file_id всегда, даже если он None
+                m["file_id"] = str(msg["file_id"]) if "file_id" in msg else None
+                    
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
-                m["voiceData"] = msg.get("voice_data")
+                m["voice_data"] = msg.get("voice_data")
                 m["duration"] = msg.get("duration", 0)
                 m["visualization"] = msg.get("visualization", [])
             result.append(m)
@@ -658,7 +662,6 @@ def get_chat_history(user1_id, user2_id):
     except Exception as e:
         logger.error(f"Ошибка получения истории чата: {e}")
         return []
-    
     
     
 
