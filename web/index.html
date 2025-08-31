@@ -24,6 +24,14 @@
     </div>
 </div>
 
+<!-- Модальное окно для полноэкранного просмотра изображений -->
+<div class="image-modal-overlay hidden" id="image-modal-overlay">
+    <div class="image-modal-content">
+        <button class="image-modal-close" id="image-modal-close">×</button>
+        <img src="" alt="Full screen image" class="image-modal-img" id="image-modal-img">
+    </div>
+</div>
+
     <!-- Скрытый input для выбора файлов -->
 <input type="file" id="file-input" class="file-input" accept="image/*,video/*" onchange="handleFileSelect(event)">
 
@@ -227,6 +235,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+
+   initImageModal();
     // Проверяем авторизацию
     const user_id = localStorage.getItem('user_id');
     if (!user_id) {
@@ -312,6 +322,12 @@ document.addEventListener('DOMContentLoaded', function() {
             // Обработчик нажатия ESC
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+        // Если открыто модальное окно изображения - закрываем только его
+        if (!document.getElementById('image-modal-overlay').classList.contains('hidden')) {
+            closeImageModal();
+            return;
+        }
+        
         // Если открыто модальное окно удаления - закрываем его
         if (!document.getElementById('delete-message-modal').classList.contains('hidden')) {
             document.getElementById('delete-message-overlay').classList.add('hidden');
@@ -319,7 +335,7 @@ document.addEventListener('keydown', function(e) {
             return;
         }
         
-        // Если открыт чат - обрабатываем закрытие
+        // Если открыт чат - обрабатываем закрытие (оригинальная логика)
         if (!document.getElementById('chat-container').classList.contains('hidden')) {
             // Сбрасываем currentChatUserId только если это не чат с самим собой
             if (currentChatUserId !== localStorage.getItem('user_id')) {
@@ -392,6 +408,68 @@ document.getElementById('message-delete-for-me').addEventListener('click', async
         messageContextMenu.classList.add('hidden');
     }
 });
+
+
+function initImageModal() {
+    const imageModal = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    const imageModalClose = document.getElementById('image-modal-close');
+    
+    // Обработчик закрытия по клику на крестик
+    imageModalClose.addEventListener('click', closeImageModal);
+    
+    // Обработчик закрытия по клику на оверлей
+    imageModal.addEventListener('click', function(e) {
+        if (e.target === imageModal) {
+            closeImageModal();
+        }
+    });
+    
+    // Обработчик закрытия по ESC
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !imageModal.classList.contains('hidden')) {
+            closeImageModal();
+        }
+    });
+    
+    // Обработчик клика по изображениям в сообщениях
+    document.addEventListener('click', function(e) {
+        const imgElement = e.target.closest('.media-preview');
+        if (imgElement && imgElement.src) {
+            openImageModal(imgElement.src);
+        }
+    });
+}
+
+function openImageModal(imageSrc) {
+    const imageModal = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    imageModalImg.src = imageSrc;
+    imageModal.classList.remove('hidden');
+    
+    // Запрещаем прокрутку фона
+    document.body.style.overflow = 'hidden';
+}
+
+function closeImageModal() {
+    const imageModal = document.getElementById('image-modal-overlay');
+    imageModal.classList.add('hidden');
+    
+    // Восстанавливаем прокрутку
+    document.body.style.overflow = '';
+}
+
+function openImageModal(imageSrc) {
+    const imageModal = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    imageModalImg.src = imageSrc;
+    imageModal.classList.remove('hidden');
+    
+    // Запрещаем прокрутку фона
+    document.body.style.overflow = 'hidden';
+}
 
 async function saveVideoToLocalStorage(messageId, videoData) {
     try {
@@ -1489,11 +1567,12 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         
         const mediaType = message.mediaType || (message.is_media ? message.media_type : null);
         
-        if (mediaType === 'image') {
-            const img = document.createElement('img');
-            img.className = 'media-preview';
-            img.alt = 'Фото';
-            img.loading = 'lazy';
+if (mediaType === 'image') {
+    const img = document.createElement('img');
+    img.className = 'media-preview'; // Этот класс обязателен
+    img.alt = 'Фото';
+    img.loading = 'lazy';
+
             
             // Проверяем, есть ли данные в кеше активного чата
             let mediaDataFromCache = null;

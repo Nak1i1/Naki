@@ -1644,9 +1644,13 @@ body {
 .media-preview {
     max-width: 100%;
     max-height: 300px;
-    object-fit: contain;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
 }
-
+.media-preview:hover {
+    transform: scale(1.02);
+}
 
 
 .media-caption-input {
@@ -2052,4 +2056,79 @@ body {
     color: white;
     text-align: center;
     padding: 20px;
+}
+
+
+/* Стили для полноэкранного просмотра изображений */
+.image-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    backdrop-filter: blur(5px);
+}
+
+.image-modal-content {
+    position: relative;
+    max-width: 90%;
+    max-height: 90%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.image-modal-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.image-modal-close {
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 40px;
+    height: 40px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s ease;
+    z-index: 2001;
+}
+
+.image-modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Анимация появления */
+.image-modal-overlay {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.image-modal-overlay:not(.hidden) {
+    opacity: 1;
+}
+
+.image-modal-content {
+    transform: scale(0.9);
+    transition: transform 0.3s ease;
+}
+
+.image-modal-overlay:not(.hidden) .image-modal-content {
+    transform: scale(1);
 }
