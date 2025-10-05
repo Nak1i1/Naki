@@ -1744,7 +1744,7 @@ if (mediaType === 'image') {
         document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
         document.getElementById('message-delete-for-me').classList.toggle('hidden', isMyMessage);
         
-        showMessageContextMenu(e);
+        window.showMessageContextMenu(e);
     });
     
     // Добавляем сообщение в контейнер
@@ -2407,11 +2407,11 @@ document.addEventListener('contextmenu', function(e) {
         currentContextMessage = messageElement;
         
         const isVideoMessage = messageElement.querySelector('.video-preview') !== null;
+        const isVoiceMessage = messageElement.querySelector('.voice-message') !== null;
         const isMyMessage = messageElement.classList.contains('my-message');
         
-        // Hide edit option for video messages
-        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVideoMessage);
-        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
+        // Настраиваем видимость пунктов меню
+        document.getElementById('message-edit').classList.toggle('hidden', !isMyMessage || isVideoMessage || isVoiceMessage);
         document.getElementById('message-delete').classList.toggle('hidden', !isMyMessage);
         document.getElementById('message-delete-for-me').classList.toggle('hidden', isMyMessage);
         document.getElementById('message-pin').classList.toggle('hidden', !isMyMessage || isVoiceMessage);
@@ -2424,8 +2424,6 @@ document.addEventListener('contextmenu', function(e) {
         const menuHeight = messageContextMenu.offsetHeight;
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        const isVoiceMessage = messageElement.querySelector('.voice-message') !== null;
-
         
         let left = e.clientX;
         let top = e.clientY;
@@ -2532,6 +2530,9 @@ async function handleReply() {
         console.error('Ошибка при обработке ответа:', error);
     }
 }
+
+
+
 
 
 
@@ -2658,6 +2659,39 @@ function get_current_user_id() {
         }
     }
 }
+
+
+function showMessageContextMenu(e) {
+    const messageContextMenu = document.getElementById('message-context-menu');
+    if (!messageContextMenu) return;
+    
+    messageContextMenu.classList.add('hidden');
+    
+    const menuWidth = messageContextMenu.offsetWidth;
+    const menuHeight = messageContextMenu.offsetHeight;
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    let left = e.clientX;
+    let top = e.clientY;
+    
+    if (left + menuWidth > windowWidth) {
+        left = windowWidth - menuWidth - 5;
+    }
+    
+    if (top + menuHeight > windowHeight) {
+        top = windowHeight - menuHeight - 5;
+    }
+    
+    messageContextMenu.style.left = `${left}px`;
+    messageContextMenu.style.top = `${top}px`;
+    messageContextMenu.style.display = 'block';
+    messageContextMenu.classList.remove('hidden');
+    messageContextMenu.style.zIndex = '1000';
+}
+
+// Сделаем функцию глобально доступной
+window.showMessageContextMenu = showMessageContextMenu;
 
 // Вызов инициализации после загрузки DOM
 document.addEventListener('DOMContentLoaded', function() {

@@ -8,14 +8,28 @@ import os
 import base64
 from pathlib import Path
 import gridfs
+from flask import send_file
+import io
+import sys
+import traceback
 
-
-# Настройка логирования
+# === НАСТРОЙКА ЛОГГИРОВАНИЯ ДО ВСЕГО ОСТАЛЬНОГО ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = handle_exception
+
+# Инициализация Eel ДО всего остального
+eel.init("web", allowed_extensions=['.js', '.html'])
+
 # Инициализация MongoDB
-# Настройка MongoDB
 try:
     client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=5000)
     client.server_info()  # Проверка подключения
@@ -52,12 +66,21 @@ messages_collection.create_index([("timestamp", 1)])
 users_collection.create_index([("email", 1)], unique=True)
 users_collection.create_index([("nickname", 1)])
 
+# === Инициализация GridFS ===
+try:
+    fs = gridfs.GridFS(db)
+    logger.info("GridFS инициализирован")
+except Exception as e:
+    logger.error(f"Ошибка инициализации GridFS: {e}")
+    # Создаем fallback, чтобы код не падал
+    fs = None
+
 # Функция для получения локального времени
 def get_local_time():
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 # Инициализация Eel
-eel.init("web")
+eel.init("web", allowed_extensions=['.js', '.html'])
 
 @eel.expose
 def register_user(nickname, email, password):
@@ -79,6 +102,47 @@ def register_user(nickname, email, password):
     except Exception as e:
         logger.error(f"Ошибка регистрации: {e}")
         return {"success": False, "message": "Ошибка при регистрации"}
+    
+@eel.expose
+def get_media_messages_batch(chat_user_id, current_user_id, last_message_id=None, limit=20):
+    """
+    Получает пачку сообщений с медиа для ленивой загрузки
+    """
+    try:
+        query = {
+            "$or": [
+                {"sender_id": ObjectId(current_user_id), "receiver_id": ObjectId(chat_user_id)},
+                {"sender_id": ObjectId(chat_user_id), "receiver_id": ObjectId(current_user_id)}
+            ],
+            "is_media": True,
+            "deleted_for": {"$ne": ObjectId(current_user_id)}
+        }
+        
+        if last_message_id:
+            query["_id"] = {"$lt": ObjectId(last_message_id)}
+        
+        messages = messages_collection.find(query).sort("timestamp", -1).limit(limit)
+        
+        result = []
+        for msg in messages:
+            message_data = {
+                "id": str(msg["_id"]),
+                "sender_id": str(msg["sender_id"]),
+                "text": msg["text"],
+                "timestamp": msg.get("local_timestamp", msg["timestamp"].astimezone().strftime("%Y-%m-%d %H:%M:%S")),
+                "mediaType": msg["media_type"],
+                "filename": msg.get("filename", ""),
+                "file_size": msg.get("file_size", 0)
+            }
+            
+            # Не загружаем сами медиаданные сразу, только метаинформацию
+            result.append(message_data)
+            
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения пачки медиа-сообщений: {e}")
+        return []    
     
 @eel.expose
 def edit_message(message_id, new_text):
@@ -332,6 +396,8 @@ def remove_friend(current_user_id, friend_id):
         logger.error(f"Ошибка удаления из друзей: {e}")
         return {"success": False, "message": "Ошибка при удалении из друзей"}
 
+    
+
 @eel.expose
 def send_message(sender_id, receiver_id, text, reply_to=None):
     try:
@@ -440,141 +506,85 @@ def send_media_message(sender_id, receiver_id, media_data, media_type, filename,
         
         is_self_message = sender_id == receiver_id
         
-        # Сохраняем медиа данные в GridFS
-        fs = gridfs.GridFS(db)
+        # Сохраняем медиа данные в GridFS если он доступен
+        file_id = None
+        if fs is not None:
+            try:
+                file_data = base64.b64decode(media_data)
+                file_id = fs.put(file_data, filename=filename, content_type=f"{media_type}/*")
+            except Exception as gridfs_error:
+                logger.error(f"GridFS put error: {gridfs_error}")
+                file_id = None
         
-        try:
-            file_data = base64.b64decode(media_data)
-            file_id = fs.put(file_data, filename=filename, content_type=f"{media_type}/*")
-            
-            message_data = {
-                "sender_id": ObjectId(sender_id),
-                "receiver_id": ObjectId(receiver_id),
-                "text": caption or f"[{media_type.capitalize()}]",
-                "timestamp": utc_time,
-                "read": is_self_message,
-                "local_timestamp": local_time_str,
-                "is_media": True,
-                "media_type": media_type,
-                "file_id": file_id,  # Сохраняем ID файла в GridFS
-                "filename": filename,
-                "file_size": len(file_data)
-            }
-            
-            result = messages_collection.insert_one(message_data)
-            
-            return {
-                "success": True,
-                "message_id": str(result.inserted_id),
-                "timestamp": local_time_str,
-                "read": is_self_message,
-                "file_id": str(file_id)
-            }
-            
-        except Exception as decode_error:
-            logger.error(f"Error processing media data: {decode_error}")
-            # Fallback: сохраняем данные прямо в сообщении
-            message_data = {
-                "sender_id": ObjectId(sender_id),
-                "receiver_id": ObjectId(receiver_id),
-                "text": caption or f"[{media_type.capitalize()}]",
-                "timestamp": utc_time,
-                "read": is_self_message,
-                "local_timestamp": local_time_str,
-                "is_media": True,
-                "media_type": media_type,
-                "media_data": media_data,  # Сохраняем base64 напрямую
-                "filename": filename,
-                "file_size": len(base64.b64decode(media_data))
-            }
-            
-            result = messages_collection.insert_one(message_data)
-            
-            return {
-                "success": True,
-                "message_id": str(result.inserted_id),
-                "timestamp": local_time_str,
-                "read": is_self_message
-            }
+        message_data = {
+            "sender_id": ObjectId(sender_id),
+            "receiver_id": ObjectId(receiver_id),
+            "text": caption or f"[{media_type.capitalize()}]",
+            "timestamp": utc_time,
+            "read": is_self_message,
+            "local_timestamp": local_time_str,
+            "is_media": True,
+            "media_type": media_type,
+            "filename": filename,
+            "file_size": len(base64.b64decode(media_data))
+        }
+        
+        # Добавляем file_id если сохранено в GridFS, иначе сохраняем данные напрямую
+        if file_id is not None:
+            message_data["file_id"] = file_id
+        else:
+            message_data["media_data"] = media_data  # Сохраняем base64 напрямую
+        
+        result = messages_collection.insert_one(message_data)
+        
+        return {
+            "success": True,
+            "message_id": str(result.inserted_id),
+            "timestamp": local_time_str,
+            "read": is_self_message
+        }
             
     except Exception as e:
         logger.error(f"Error sending media message: {str(e)}")
         return {"success": False, "message": "Error sending media message"}
-    
-    
-
 
 @eel.expose
 def get_media_message(message_id):
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message and message.get("is_media"):
-            # Если сообщение помечено как невалидное
-            if message.get("media_invalid"):
-                return {
-                    "success": False, 
-                    "message": "Файл недоступен",
-                    "file_unavailable": True
-                }
+            media_data = None
             
-            # Если есть file_id, используем GridFS
-            if "file_id" in message:
-                fs = gridfs.GridFS(db)
+            # Пытаемся получить данные из GridFS
+            if "file_id" in message and fs is not None:
                 try:
-                    if fs.exists(message["file_id"]):
-                        media_file = fs.get(message["file_id"])
-                        media_data = base64.b64encode(media_file.read()).decode('utf-8')
-                        
-                        return {
-                            "success": True,
-                            "media_data": media_data,
-                            "media_type": message["media_type"],
-                            "filename": message["filename"],
-                            "file_size": message.get("file_size", 0)
-                        }
-                    else:
-                        # Помечаем сообщение как невалидное
-                        messages_collection.update_one(
-                            {"_id": ObjectId(message_id)},
-                            {"$set": {"media_invalid": True}}
-                        )
-                        return {
-                            "success": False, 
-                            "message": "Файл недоступен",
-                            "file_unavailable": True
-                        }
+                    media_file = fs.get(message["file_id"])
+                    media_data = base64.b64encode(media_file.read()).decode('utf-8')
                 except gridfs.errors.NoFile:
-                    # Помечаем сообщение как невалидное
-                    messages_collection.update_one(
-                        {"_id": ObjectId(message_id)},
-                        {"$set": {"media_invalid": True}}
-                    )
-                    logger.warning(f"Файл не найден в GridFS для сообщения {message_id}")
-                    return {
-                        "success": False, 
-                        "message": "Файл недоступен",
-                        "file_unavailable": True
-                    }
+                    logger.error(f"File not found in GridFS for message {message_id}")
+                    media_data = None
+                except Exception as gridfs_error:
+                    logger.error(f"GridFS error for message {message_id}: {gridfs_error}")
+                    media_data = None
             
-            # Если нет file_id, ищем в старом формате
-            if "media_data" in message:
-                return {
-                    "success": True,
-                    "media_data": message["media_data"],
-                    "media_type": message["media_type"],
-                    "filename": message.get("filename", ""),
-                    "file_size": message.get("file_size", 0)
-                }
+            # Если в GridFS нет, пробуем получить из поля media_data
+            if not media_data and "media_data" in message:
+                media_data = message["media_data"]
+            
+            if not media_data:
+                return {"success": False, "message": "No media data found"}
             
             return {
-                "success": False, 
-                "message": "Данные медиа не найдены",
-                "file_unavailable": True
+                "success": True,
+                "media_data": media_data,
+                "media_type": message["media_type"],
+                "filename": message.get("filename", ""),
+                "file_size": message.get("file_size", 0)
             }
-        return {"success": False, "message": "Медиа-сообщение не найдено"}
+        return {"success": False, "message": "Media message not found"}
     except Exception as e:
-        logger.error(f"Ошибка получения медиа-сообщения: {e}")
-        return {"success": False, "message": "Ошибка при получении медиа-сообщения"}
+        logger.error(f"Error getting media message: {e}")
+        return {"success": False, "message": "Error getting media message"}
     
     
 @eel.expose
@@ -682,13 +692,35 @@ def clear_reply_state(user_id, chat_id):
 @eel.expose
 def get_chat_history(user1_id, user2_id):
     try:
+        # Используем проекцию для уменьшения объема данных
+        projection = {
+            "_id": 1,
+            "sender_id": 1,
+            "receiver_id": 1,
+            "text": 1,
+            "timestamp": 1,
+            "read": 1,
+            "local_timestamp": 1,
+            "is_media": 1,
+            "media_type": 1,
+            "filename": 1,
+            "file_size": 1,
+            "file_id": 1,
+            "is_voice": 1,
+            "voice_data": 1,
+            "duration": 1,
+            "listened": 1,
+            "visualization": 1,
+            "reply_to": 1
+        }
+        
         messages = messages_collection.find({
             "$or": [
                 {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
                 {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
             ],
             "deleted_for": {"$ne": ObjectId(user1_id)}
-        }).sort("timestamp", 1)
+        }, projection=projection).sort("timestamp", 1)
         
         # Помечаем текстовые сообщения как прочитанные
         if user1_id != user2_id:
@@ -707,7 +739,10 @@ def get_chat_history(user1_id, user2_id):
             # Получаем данные сообщения, на которое есть ответ
             reply_message = None
             if msg.get("reply_to"):
-                reply_message = messages_collection.find_one({"_id": msg["reply_to"]})
+                reply_message = messages_collection.find_one(
+                    {"_id": msg["reply_to"]}, 
+                    projection={"text": 1, "sender_id": 1}
+                )
             
             m = {
                 "id": str(msg["_id"]),
@@ -728,20 +763,8 @@ def get_chat_history(user1_id, user2_id):
                 m["mediaType"] = msg["media_type"]
                 m["filename"] = msg.get("filename", "")
                 m["file_size"] = msg.get("file_size", 0)
+                m["file_id"] = str(msg["file_id"]) if msg.get("file_id") else None
                 
-                # Если есть file_id, пытаемся получить данные через GridFS
-                if "file_id" in msg:
-                    try:
-                        fs = gridfs.GridFS(db)
-                        media_file = fs.get(msg["file_id"])
-                        m["mediaData"] = base64.b64encode(media_file.read()).decode('utf-8')
-                    except gridfs.errors.NoFile:
-                        logger.error(f"File not found in GridFS for message {str(msg['_id'])}")
-                        m["mediaData"] = None
-                # Если есть media_data (старый формат), сохраняем его
-                elif "media_data" in msg:
-                    m["mediaData"] = msg["media_data"]
-                    
             if msg.get("is_voice"):
                 m["isVoiceMessage"] = True
                 m["voice_data"] = msg.get("voice_data")
@@ -967,9 +990,23 @@ def get_last_message(user1_id, user2_id):
         logger.error(f"Error getting last message: {e}")
         return None
     
-# Запуск приложения
 if __name__ == '__main__':
     try:
-        eel.start('login.html', size=(1000, 700), mode='chrome', port=8000)
+        # Используем Chrome в app mode вместо системного браузера
+        options = {
+            'mode': 'chrome',  # Используем Chrome в app mode
+            'port': 8000,
+            'size': (1200, 800),
+            'position': (100, 100),
+            'chromeFlags': ['--disable-http-cache']
+        }
+        
+        # Запускаем приложение в отдельном окне Chrome
+        eel.start('login.html', **options)
     except Exception as e:
         logger.error(f"Ошибка запуска приложения: {e}")
+        # Пробуем запустить в default mode если chrome не доступен
+        try:
+            eel.start('login.html', mode='default', port=8000, size=(1200, 800))
+        except Exception as e2:
+            logger.error(f"Ошибка запуска в default mode: {e2}")
