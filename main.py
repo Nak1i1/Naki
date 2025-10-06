@@ -426,6 +426,9 @@ def get_reply_state(user_id, chat_id):
         logger.error(f"Ошибка получения состояния ответа: {e}")
         return {"success": False}
     
+    
+
+    
 @eel.expose
 def send_media_message(sender_id, receiver_id, media_data, media_type, filename, caption=None):
     try:

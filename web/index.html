@@ -8,19 +8,22 @@
 </head>
 <body>
 
-    <!-- Модальное окно отправки медиа -->
+<!-- Модальное окно отправки медиа -->
 <div class="media-send-overlay hidden" id="media-send-overlay"></div>
 <div class="media-send-modal hidden" id="media-send-modal">
-    <div class="media-send-title" id="media-send-title">Отправить фото</div>
-    <div class="media-preview-container">
-        <img src="" alt="Preview" class="media-preview hidden" id="image-preview">
-        <video controls class="media-preview hidden" id="video-preview"></video>
+    <div class="media-send-title" id="media-send-title">Отправить медиа</div>
+    
+    <!-- Контейнер для превью множества файлов -->
+    <div class="media-preview-grid" id="media-preview-grid">
+        <!-- Превью будут добавляться динамически -->
     </div>
+    
     <input type="text" class="media-caption-input" id="media-caption-input" placeholder="Введите текст">
+    
     <div class="media-send-buttons">
         <button class="media-send-button add" id="media-add-button">Добавить</button>
         <button class="media-send-button cancel" id="media-cancel-button">Отмена</button>
-        <button class="media-send-button send" id="media-send-button">Отправить</button>
+        <button class="media-send-button send" id="media-send-button">Отправить все</button>
     </div>
 </div>
 
@@ -60,16 +63,17 @@
             <div class="chat-status" id="chat-status"></div>
         </div>
     </div>
-    <div class="chat-scroll-container">
-        <div class="chat-messages-wrapper" id="chat-messages-wrapper">
-            <div class="chat-messages" id="chat-messages">
-                <div class="no-messages">Нет сообщений</div>
-            </div>
-        </div>
-        <div class="custom-scrollbar" id="custom-scrollbar">
-            <div class="custom-scrollbar-thumb" id="custom-scrollbar-thumb"></div>
+<div class="chat-scroll-container">
+    <div class="chat-messages-wrapper" id="chat-messages-wrapper">
+        <div class="date-headers-container" id="date-headers-container"></div>
+        <div class="chat-messages" id="chat-messages">
+            <div class="no-messages">Нет сообщений</div>
         </div>
     </div>
+    <div class="custom-scrollbar" id="custom-scrollbar">
+        <div class="custom-scrollbar-thumb" id="custom-scrollbar-thumb"></div>
+    </div>
+</div>
     <div class="message-input-container">
         <div class="reply-container hidden" id="reply-container"></div>
         <div class="input-row">
@@ -176,9 +180,12 @@
     let isDraggingScroll = false;
     let scrollDragStartY = 0;
     let scrollThumbStartY = 0;
+    let selectedFiles = [];
+    const MAX_FILES = 16;
     
-
-    
+let dateHeaders = new Map();
+let currentStickyDate = null;
+let dateHeadersObserver = null;    
 
 async function updateLastMessageAfterDelete(chatUserId) {
     try {
@@ -226,406 +233,287 @@ async function updateLastMessageAfterDelete(chatUserId) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', async function() {
 
-document.addEventListener('DOMContentLoaded', function() {
-    const fileInput = document.getElementById('file-input');
-    if (fileInput) {
-        fileInput.addEventListener('change', handleFileSelect);
+function initImageModal() {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalClose = document.getElementById('image-modal-close');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalClose) {
+        imageModalClose.addEventListener('click', closeImageModal);
+    }
+    
+    if (imageModalOverlay) {
+        imageModalOverlay.addEventListener('click', function(e) {
+            if (e.target === imageModalOverlay) {
+                closeImageModal();
+            }
+        });
+    }
+    
+    // Обработчик ESC для модального окна изображения
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !imageModalOverlay.classList.contains('hidden')) {
+            closeImageModal();
+        }
+    });
+}
+
+function closeImageModal() {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalOverlay) {
+        imageModalOverlay.classList.add('hidden');
+    }
+    if (imageModalImg) {
+        imageModalImg.src = '';
+    }
+}
+
+// Функция для открытия изображения в полноэкранном режиме
+function openImageModal(imageSrc) {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalOverlay && imageModalImg) {
+        imageModalImg.src = imageSrc;
+        imageModalOverlay.classList.remove('hidden');
+    }
+}
+
+// Также добавьте обработчик для кликов по изображениям в чате
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('media-preview')) {
+        openImageModal(e.target.src);
     }
 });
 
 
-   initImageModal();
+document.addEventListener('DOMContentLoaded', async function() {
     // Проверяем авторизацию
     const user_id = localStorage.getItem('user_id');
     if (!user_id) {
         window.location.href = 'login.html';
         return;
     }
-        initCustomScroll();
 
-            // Добавляем обработчик перед выгрузкой страницы
-            window.addEventListener('beforeunload', function() {
-                stopVoiceMessage();
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                    mediaRecorder.stop();
-                }
-            });
+    // Сначала инициализируем базовые функции
+    initCustomScroll();
+    initImageModal(); // Теперь эта функция будет определена
 
-            // Запускаем отправку статуса онлайн
-            startOnlineStatusUpdates();
+    // Добавляем обработчик перед выгрузкой страницы
+    window.addEventListener('beforeunload', function() {
+        stopVoiceMessage();
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+    });
 
-            // Загружаем данные пользователя
-            try {
-                currentUser = await eel.get_user_data(user_id)();
-                if (!currentUser) {
-                    localStorage.removeItem('user_id');
-                    window.location.href = 'login.html';
-                    return;
-                }
-            } catch (error) {
-                localStorage.removeItem('user_id');
-                window.location.href = 'login.html';
+    // Запускаем отправку статуса онлайн
+    startOnlineStatusUpdates();
+
+    // Загружаем данные пользователя
+    try {
+        currentUser = await eel.get_user_data(user_id)();
+        if (!currentUser) {
+            localStorage.removeItem('user_id');
+            window.location.href = 'login.html';
+            return;
+        }
+    } catch (error) {
+        localStorage.removeItem('user_id');
+        window.location.href = 'login.html';
+        return;
+    }
+
+    // Устанавливаем аватар текущего пользователя
+    document.getElementById('top-avatar').style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
+
+    // Инициализация поиска
+    const searchInput = document.querySelector('.search-input');
+    const clearBtn = document.querySelector('.clear-btn');
+    
+    searchInput.addEventListener('input', async function() {
+        const searchTerm = this.value.trim();
+        if (searchTerm.length > 0) {
+            const users = await eel.search_users(searchTerm, user_id)();
+            displaySearchResults(users);
+        } else {
+            loadFriends();
+        }
+    });
+
+    clearBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        searchInput.focus();
+        loadFriends();
+    });
+
+    // Инициализация контекстного меню
+    contextMenu = document.getElementById('context-menu');
+    document.addEventListener('click', closeContextMenu);
+    document.getElementById('context-menu-add').addEventListener('click', handleAddFriend);
+    document.getElementById('context-menu-remove').addEventListener('click', handleRemoveFriend);
+
+    // Обработчики для меню выхода
+    document.querySelector('.menu-icon').addEventListener('click', function() {
+        document.getElementById('logout-overlay').classList.remove('hidden');
+        document.getElementById('logout-modal').classList.remove('hidden');
+    });
+
+    document.getElementById('logout-close-btn').addEventListener('click', closeLogoutModal);
+    document.getElementById('logout-cancel-btn').addEventListener('click', closeLogoutModal);
+    document.getElementById('logout-overlay').addEventListener('click', closeLogoutModal);
+    document.getElementById('logout-confirm-btn').addEventListener('click', function() {
+        eel.update_last_online(localStorage.getItem('user_id'))();
+        localStorage.removeItem('user_id');
+        window.location.href = 'login.html';
+    });
+
+    // Обработчик нажатия ESC
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            // Если открыто модальное окно изображения - закрываем только его
+            if (!document.getElementById('image-modal-overlay').classList.contains('hidden')) {
+                closeImageModal();
                 return;
             }
-
-            // Устанавливаем аватар текущего пользователя
-            document.getElementById('top-avatar').style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
-
-            // Инициализация поиска
-            const searchInput = document.querySelector('.search-input');
-            const clearBtn = document.querySelector('.clear-btn');
             
-            searchInput.addEventListener('input', async function() {
-                const searchTerm = this.value.trim();
-                if (searchTerm.length > 0) {
-                    const users = await eel.search_users(searchTerm, user_id)();
-                    displaySearchResults(users);
-                } else {
-                    loadFriends();
-                }
-            });
-
-            clearBtn.addEventListener('click', function() {
-                searchInput.value = '';
-                searchInput.focus();
-                loadFriends();
-            });
-
-            // Инициализация контекстного меню
-            contextMenu = document.getElementById('context-menu');
-            document.addEventListener('click', closeContextMenu);
-            document.getElementById('context-menu-add').addEventListener('click', handleAddFriend);
-            document.getElementById('context-menu-remove').addEventListener('click', handleRemoveFriend);
-
-            // Обработчики для меню выхода
-            document.querySelector('.menu-icon').addEventListener('click', function() {
-                document.getElementById('logout-overlay').classList.remove('hidden');
-                document.getElementById('logout-modal').classList.remove('hidden');
-            });
-
-            document.getElementById('logout-close-btn').addEventListener('click', closeLogoutModal);
-            document.getElementById('logout-cancel-btn').addEventListener('click', closeLogoutModal);
-            document.getElementById('logout-overlay').addEventListener('click', closeLogoutModal);
-            document.getElementById('logout-confirm-btn').addEventListener('click', function() {
-                eel.update_last_online(localStorage.getItem('user_id'))();
-                localStorage.removeItem('user_id');
-                window.location.href = 'login.html';
-            });
-
-
-
-
-
-
-            // Обработчик нажатия ESC
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        // Если открыто модальное окно изображения - закрываем только его
-        if (!document.getElementById('image-modal-overlay').classList.contains('hidden')) {
-            closeImageModal();
-            return;
-        }
-        
-        // Если открыто модальное окно удаления - закрываем его
-        if (!document.getElementById('delete-message-modal').classList.contains('hidden')) {
-            document.getElementById('delete-message-overlay').classList.add('hidden');
-            document.getElementById('delete-message-modal').classList.add('hidden');
-            return;
-        }
-        
-        // Если открыт чат - обрабатываем закрытие (оригинальная логика)
-        if (!document.getElementById('chat-container').classList.contains('hidden')) {
-            // Сбрасываем currentChatUserId только если это не чат с самим собой
-            if (currentChatUserId !== localStorage.getItem('user_id')) {
-                currentChatUserId = null;
+            // Если открыто модальное окно удаления - закрываем его
+            if (!document.getElementById('delete-message-modal').classList.contains('hidden')) {
+                document.getElementById('delete-message-overlay').classList.add('hidden');
+                document.getElementById('delete-message-modal').classList.add('hidden');
+                return;
             }
             
-            // Скрываем контейнер чата и показываем дефолтный экран
-            document.getElementById('default-content').classList.remove('hidden');
-            document.getElementById('chat-container').classList.add('hidden');
+            // Если открыт чат - обрабатываем закрытие (оригинальная логика)
+            if (!document.getElementById('chat-container').classList.contains('hidden')) {
+                // Сбрасываем currentChatUserId только если это не чат с самим собой
+                if (currentChatUserId !== localStorage.getItem('user_id')) {
+                    currentChatUserId = null;
+                }
+                
+                // Скрываем контейнер чата и показываем дефолтный экран
+                document.getElementById('default-content').classList.remove('hidden');
+                document.getElementById('chat-container').classList.add('hidden');
+                
+                // Убираем выделение активного чата
+                document.querySelectorAll('.user-bar').forEach(el => {
+                    el.classList.remove('active-chat');
+                });
+                
+                // Останавливаем воспроизведение голосовых сообщений
+                stopVoiceMessage();
+                currentPlayingAudio = null;
+                voiceMessagePlaying = false;
+                currentPlayingVoiceElement = null;
+                
+                // Очищаем интервалы
+                if (readStatusInterval) {
+                    clearInterval(readStatusInterval);
+                    readStatusInterval = null;
+                }
+                if (statusUpdateInterval) {
+                    clearInterval(statusUpdateInterval);
+                    statusUpdateInterval = null;
+                }
+                
+                // Для чата с самим собой сохраняем возможность открыть его снова
+                if (currentChatUserId === localStorage.getItem('user_id')) {
+                    const selfChat = document.querySelector(`.user-bar[data-user-id="${currentChatUserId}"]`);
+                    if (selfChat) {
+                        selfChat.classList.add('active-chat');
+                    }
+                }
+            }
+        }
+    });
+
+    // Обработчик клика по карточке пользователя
+    document.addEventListener('click', function(e) {
+        let userBar = e.target.closest('.user-bar');
+        if (userBar) {
+            const userId = userBar.dataset.userId;
+            openChat(userId);
             
-            // Убираем выделение активного чата
             document.querySelectorAll('.user-bar').forEach(el => {
                 el.classList.remove('active-chat');
             });
-            
-            // Останавливаем воспроизведение голосовых сообщений
-            stopVoiceMessage();
-            currentPlayingAudio = null;
-            voiceMessagePlaying = false;
-            currentPlayingVoiceElement = null;
-            
-            // Очищаем интервалы
-            if (readStatusInterval) {
-                clearInterval(readStatusInterval);
-                readStatusInterval = null;
-            }
-            if (statusUpdateInterval) {
-                clearInterval(statusUpdateInterval);
-                statusUpdateInterval = null;
-            }
-            
-            // Для чата с самим собой сохраняем возможность открыть его снова
-            if (currentChatUserId === localStorage.getItem('user_id')) {
-                const selfChat = document.querySelector(`.user-bar[data-user-id="${currentChatUserId}"]`);
-                if (selfChat) {
-                    selfChat.classList.add('active-chat');
-                }
-            }
-        }
-    }
-});
-
-
-document.getElementById('message-delete-for-me').addEventListener('click', async () => {
-    if (!currentContextMessage) {
-        messageContextMenu.classList.add('hidden');
-        return;
-    }
-    
-    const messageId = currentContextMessage.dataset.id;
-    try {
-        currentContextMessage.remove();
-        
-        if (currentChatUserId && activeChats[currentChatUserId]) {
-            const messagesContainer = document.getElementById('chat-messages');
-            activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-            
-            if (activeChats[currentChatUserId].messagesData) {
-                activeChats[currentChatUserId].messagesData = 
-                    activeChats[currentChatUserId].messagesData.filter(m => m.id !== messageId);
-            }
-        }
-        
-        // Обновляем последнее сообщение на карточке
-        await updateLastMessageAfterDelete(currentChatUserId);
-    } catch (error) {
-        console.error('Ошибка при удалении:', error);
-        alert('Ошибка при удалении сообщения');
-    } finally {
-        messageContextMenu.classList.add('hidden');
-    }
-});
-
-
-function initImageModal() {
-    const imageModal = document.getElementById('image-modal-overlay');
-    const imageModalImg = document.getElementById('image-modal-img');
-    const imageModalClose = document.getElementById('image-modal-close');
-    
-    // Обработчик закрытия по клику на крестик
-    imageModalClose.addEventListener('click', closeImageModal);
-    
-    // Обработчик закрытия по клику на оверлей
-    imageModal.addEventListener('click', function(e) {
-        if (e.target === imageModal) {
-            closeImageModal();
+            userBar.classList.add('active-chat');
         }
     });
     
-    // Обработчик закрытия по ESC
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && !imageModal.classList.contains('hidden')) {
-            closeImageModal();
+    document.getElementById('message-input').addEventListener('keypress', async function(e) {
+        if (e.key === 'Enter' && this.value.trim()) {
+            await sendMessage(this.value.trim());
+            this.value = '';
         }
     });
-    
-    // Обработчик клика по изображениям в сообщениях
-    document.addEventListener('click', function(e) {
-        const imgElement = e.target.closest('.media-preview');
-        if (imgElement && imgElement.src) {
-            openImageModal(imgElement.src);
-        }
-    });
-}
 
-function openImageModal(imageSrc) {
-    const imageModal = document.getElementById('image-modal-overlay');
-    const imageModalImg = document.getElementById('image-modal-img');
-    
-    imageModalImg.src = imageSrc;
-    imageModal.classList.remove('hidden');
-    
-    // Запрещаем прокрутку фона
-    document.body.style.overflow = 'hidden';
-}
+    // Инициализация голосовых сообщений
+    document.getElementById('voice-message-btn').addEventListener('mousedown', startRecording);
+    document.getElementById('voice-message-btn').addEventListener('touchstart', startRecording);
+    document.getElementById('voice-message-btn').addEventListener('mouseup', stopRecording);
+    document.getElementById('voice-message-btn').addEventListener('touchend', stopRecording);
+    document.getElementById('voice-message-btn').addEventListener('mouseleave', stopRecording);
 
-function closeImageModal() {
-    const imageModal = document.getElementById('image-modal-overlay');
-    imageModal.classList.add('hidden');
-    
-    // Восстанавливаем прокрутку
-    document.body.style.overflow = '';
-}
+    // Проверка новых сообщений каждые 2 секунды
+    setInterval(checkForNewMessages, 2000);
 
-function openImageModal(imageSrc) {
-    const imageModal = document.getElementById('image-modal-overlay');
-    const imageModalImg = document.getElementById('image-modal-img');
-    
-    imageModalImg.src = imageSrc;
-    imageModal.classList.remove('hidden');
-    
-    // Запрещаем прокрутку фона
-    document.body.style.overflow = 'hidden';
-}
+    // Инициализация контекстного меню сообщений
+    initMessageContextMenu();
 
-async function saveVideoToLocalStorage(messageId, videoData) {
-    try {
-        // Создаем папку для хранения медиа, если ее нет
-        const mediaDir = await eel.create_video_cache_folder()();
-        if (!mediaDir) throw new Error("Не удалось создать папку для медиа");
-        
-        // Сохраняем видео в файл
-        const result = await eel.save_video_to_cache(messageId, videoData)();
-        return result.success;
-    } catch (error) {
-        console.error('Ошибка сохранения видео:', error);
-        return false;
-    }
-}
+    // Инициализация элементов для работы с медиа
+    const mediaAddButton = document.getElementById('media-add-button');
+    const mediaCancelButton = document.getElementById('media-cancel-button');
+    const mediaSendButton = document.getElementById('media-send-button');
+    const mediaSendOverlay = document.getElementById('media-send-overlay');
+    const mediaSendModal = document.getElementById('media-send-modal');
+    const mediaCaptionInput = document.getElementById('media-caption-input');
+    const photoBtn = document.getElementById('photo-message-btn');
 
-async function handleDelete() {
-    if (!currentContextMessage) {
-        messageContextMenu.classList.add('hidden');
-        return;
-    }
-    
-    const messageId = currentContextMessage.dataset.id;
-    const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
-    const isMyMessage = messageElement.classList.contains('my-message');
-    
-    if (!isMyMessage) {
-        try {
-            const result = await eel.delete_message(messageId)();
-            if (result.success) {
-                currentContextMessage.remove();
-                
-                if (currentChatUserId && activeChats[currentChatUserId]) {
-                    const messagesContainer = document.getElementById('chat-messages');
-                    activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-                    
-                    if (activeChats[currentChatUserId].messagesData) {
-                        activeChats[currentChatUserId].messagesData = 
-                            activeChats[currentChatUserId].messagesData.filter(m => m.id !== messageId);
-                    }
-                }
-                
-                await updateLastMessageAfterDelete(currentChatUserId);
-            } else {
-                alert(result.message || 'Не удалось удалить сообщение');
+    // Обработчики для модального окна медиа
+    if (mediaAddButton) {
+        mediaAddButton.addEventListener('click', function() {
+            if (selectedFiles.length >= MAX_FILES) {
+                alert(`Максимальное количество файлов: ${MAX_FILES}`);
+                return;
             }
-        } catch (error) {
-            console.error('Ошибка при удалении:', error);
-            alert('Ошибка при удалении сообщения');
-        } finally {
-            messageContextMenu.classList.add('hidden');
-        }
-        return;
-    }
-    
-    // Показать модальное окно для своих сообщений
-    document.getElementById('delete-message-overlay').classList.remove('hidden');
-    document.getElementById('delete-message-modal').classList.remove('hidden');
-    
-    // Обработчики для модального окна
-    const closeDeleteModal = () => {
-        document.getElementById('delete-message-overlay').classList.add('hidden');
-        document.getElementById('delete-message-modal').classList.add('hidden');
-        messageContextMenu.classList.add('hidden');
-    };
-    
-    document.getElementById('delete-message-close-btn').addEventListener('click', closeDeleteModal, { once: true });
-    document.getElementById('delete-message-cancel-btn').addEventListener('click', closeDeleteModal, { once: true });
-    document.getElementById('delete-message-overlay').addEventListener('click', closeDeleteModal, { once: true });
-    
-    document.getElementById('delete-for-all-btn').addEventListener('click', async () => {
-        try {
-            const result = await eel.delete_message(messageId)();
-            if (result.success) {
-                currentContextMessage.remove();
-                
-                if (currentChatUserId && activeChats[currentChatUserId]) {
-                    const messagesContainer = document.getElementById('chat-messages');
-                    activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-                    
-                    if (activeChats[currentChatUserId].messagesData) {
-                        activeChats[currentChatUserId].messagesData = 
-                            activeChats[currentChatUserId].messagesData.filter(m => m.id !== messageId);
-                    }
-                }
-                
-                await updateLastMessageAfterDelete(currentChatUserId);
-            } else {
-                alert(result.message || 'Не удалось удалить сообщение');
-            }
-        } catch (error) {
-            console.error('Ошибка при удалении:', error);
-            alert('Ошибка при удалении сообщения');
-        } finally {
-            closeDeleteModal();
-        }
-    }, { once: true });
-    
-    document.getElementById('delete-for-me-btn').addEventListener('click', async () => {
-        try {
-            currentContextMessage.remove();
-            
-            if (currentChatUserId && activeChats[currentChatUserId]) {
-                const messagesContainer = document.getElementById('chat-messages');
-                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-                
-                if (activeChats[currentChatUserId].messagesData) {
-                    activeChats[currentChatUserId].messagesData = 
-                        activeChats[currentChatUserId].messagesData.filter(m => m.id !== messageId);
-                }
-            }
-            
-            await updateLastMessageAfterDelete(currentChatUserId);
-        } catch (error) {
-            console.error('Ошибка при удалении:', error);
-            alert('Ошибка при удалении сообщения');
-        } finally {
-            closeDeleteModal();
-        }
-    }, { once: true });
-}
-
-            // Обработчик клика по карточке пользователя
-            document.addEventListener('click', function(e) {
-                let userBar = e.target.closest('.user-bar');
-                if (userBar) {
-                    const userId = userBar.dataset.userId;
-                    openChat(userId);
-                    
-                    document.querySelectorAll('.user-bar').forEach(el => {
-                        el.classList.remove('active-chat');
-                    });
-                    userBar.classList.add('active-chat');
-                }
-            });
-            
-document.getElementById('message-input').addEventListener('keypress', async function(e) {
-    if (e.key === 'Enter' && this.value.trim()) {
-        await sendMessage(this.value.trim());
-        this.value = '';
-    }
-});
-
-            // Инициализация голосовых сообщений
-            document.getElementById('voice-message-btn').addEventListener('mousedown', startRecording);
-            document.getElementById('voice-message-btn').addEventListener('touchstart', startRecording);
-            document.getElementById('voice-message-btn').addEventListener('mouseup', stopRecording);
-            document.getElementById('voice-message-btn').addEventListener('touchend', stopRecording);
-            document.getElementById('voice-message-btn').addEventListener('mouseleave', stopRecording);
-
-            // Проверка новых сообщений каждые 2 секунды
-            setInterval(checkForNewMessages, 2000);
-
-            // Первоначальная загрузка друзей
-            await loadFriends();
+            openFileSelector();
         });
+    }
+
+    if (mediaSendButton) {
+        mediaSendButton.addEventListener('click', sendAllMedia);
+    }
+
+    if (mediaCancelButton) {
+        mediaCancelButton.addEventListener('click', closeMediaModal);
+    }
+
+    if (mediaSendOverlay) {
+        mediaSendOverlay.addEventListener('click', closeMediaModal);
+    }
+
+    // Обработчик для кнопки фото
+    if (photoBtn) {
+        photoBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openFileSelector();
+        });
+    }
+
+    // Обработчик для выбора файлов
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+
+    // Первоначальная загрузка друзей
+    await loadFriends();
+});
 
 
 
@@ -869,101 +757,8 @@ async function loadVideoMessage(messageId) {
     }
 }
 
-async function sendMedia() {
-    const fileInput = document.getElementById('file-input');
-    if (!fileInput.files.length) return;
-    
-    const file = fileInput.files[0];
-    const caption = mediaCaptionInput.value.trim();
-    
-    try {
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const fileData = event.target.result.split(',')[1];
-            const fileType = file.type.startsWith('video/') ? 'video' : 'image';
-            
-            // Показываем индикатор загрузки
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.className = 'loading-indicator';
-            loadingIndicator.textContent = 'Отправка...';
-            mediaSendModal.appendChild(loadingIndicator);
-            mediaSendButton.disabled = true;
-            
-            try {
-                const result = await eel.send_media_message(
-                    localStorage.getItem('user_id'),
-                    currentChatUserId,
-                    fileData,
-                    fileType,
-                    file.name,
-                    caption
-                )();
-                
-                if (result.success) {
-                    const message = {
-                        id: result.message_id,
-                        sender_id: localStorage.getItem('user_id'),
-                        receiver_id: currentChatUserId,
-                        text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
-                        timestamp: result.timestamp,
-                        read: result.read,
-                        isMedia: true,
-                        mediaType: fileType,
-                        mediaData: fileData, // Сохраняем данные медиа для немедленного отображения
-                        filename: file.name
-                    };
-                    
-                    addMessageToChat(message, true, true);
-                    lastMessageId = message.id;
-                    
-                    if (activeChats[currentChatUserId]) {
-                        const messagesContainer = document.getElementById('chat-messages');
-                        activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-                        activeChats[currentChatUserId].lastMessageId = lastMessageId;
-                        
-                        // Обновляем messagesData с медиаданными
-                        if (!activeChats[currentChatUserId].messagesData) {
-                            activeChats[currentChatUserId].messagesData = [];
-                        }
-                        
-                        // Удаляем старую запись, если есть
-                        activeChats[currentChatUserId].messagesData = activeChats[currentChatUserId].messagesData.filter(m => m.id !== message.id);
-                        
-                        // Добавляем новую запись с медиаданными
-                        activeChats[currentChatUserId].messagesData.push({
-                            id: message.id,
-                            isMedia: true,
-                            mediaType: fileType,
-                            mediaData: fileData,
-                            text: message.text,
-                            filename: file.name
-                        });
-                    }
-                    
-                    updateLastMessageOnUserCard(
-                        currentChatUserId, 
-                        fileType === 'video' ? 'Видео' : 'Фото', 
-                        true
-                    );
-                    
-                    closeMediaModal();
-                } else {
-                    alert('Ошибка при отправке: ' + result.message);
-                }
-            } catch (error) {
-                console.error('Ошибка отправки:', error);
-                alert('Ошибка при отправке файла');
-            } finally {
-                loadingIndicator.remove();
-                mediaSendButton.disabled = false;
-            }
-        };
-        reader.readAsDataURL(file);
-    } catch (error) {
-        console.error('Ошибка чтения файла:', error);
-        alert('Ошибка при обработке файла');
-    }
-}
+
+
 
 async function checkAndRestoreReplyState() {
     if (!currentChatUserId) return;
@@ -2386,6 +2181,20 @@ for (let i = 0; i < 20; i++) {
     return voiceMessage;
 }
 
+
+
+
+function openFileSelector() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.setAttribute('multiple', 'multiple');
+        fileInput.click();
+    }
+}
+
+
+
 function initMessageContextMenu() {
     console.log('initMessageContextMenu вызвана');
     const messageContextMenu = document.getElementById('message-context-menu');
@@ -3055,7 +2864,7 @@ const mediaCaptionInput = document.getElementById('media-caption-input');
 const mediaAddButton = document.getElementById('media-add-button');
 const mediaCancelButton = document.getElementById('media-cancel-button');
 const mediaSendButton = document.getElementById('media-send-button');
-let selectedFiles = [];
+
 let currentMediaType = 'photo';
 let photoMenuTimeout;
 
@@ -3100,81 +2909,216 @@ document.querySelectorAll('.photo-option').forEach(option => {
 function openFileSelector() {
     const fileInput = document.getElementById('file-input');
     if (fileInput) {
-        fileInput.value = ''; // Сбрасываем предыдущий выбор
+        fileInput.value = '';
+        fileInput.setAttribute('multiple', 'multiple');
         fileInput.click();
-    } else {
-        console.error('File input element not found');
     }
 }
 
 function handleFileSelect(e) {
-    const files = e.target.files;
-    if (files.length === 0) return;
+    const files = Array.from(e.target.files);
     
-    const file = files[0];
-    currentMediaType = file.type.startsWith('video/') ? 'video' : 'photo';
-    
-    // Показываем соответствующее превью
-    imagePreview.classList.add('hidden');
-    videoPreview.classList.add('hidden');
-    
-    if (currentMediaType === 'photo') {
-        mediaSendTitle.textContent = 'Отправить фото';
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            imagePreview.src = event.target.result;
-            imagePreview.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
-    } else {
-        mediaSendTitle.textContent = 'Отправить видео';
-        videoPreview.src = URL.createObjectURL(file);
-        videoPreview.classList.remove('hidden');
+    // Проверяем общее количество файлов
+    if (selectedFiles.length + files.length > MAX_FILES) {
+        alert(`Можно добавить не более ${MAX_FILES} файлов. У вас уже ${selectedFiles.length} файлов.`);
+        return;
     }
     
-    // Показываем модальное окно
-    mediaSendOverlay.classList.remove('hidden');
-    mediaSendModal.classList.remove('hidden');
-    mediaCaptionInput.value = '';
-    mediaCaptionInput.focus();
+    // Добавляем только новые, не дублирующиеся файлы
+    let newFilesAdded = 0;
+    files.forEach(file => {
+        if (!isFileDuplicate(file, selectedFiles) && selectedFiles.length + newFilesAdded < MAX_FILES) {
+            selectedFiles.push(file);
+            newFilesAdded++;
+        }
+    });
+    
+    // Обновляем превью только если были добавлены новые файлы
+    if (newFilesAdded > 0) {
+        updateMediaPreview();
+        
+        // Показываем модальное окно, если оно скрыто
+        if (mediaSendOverlay.classList.contains('hidden')) {
+            mediaSendOverlay.classList.remove('hidden');
+            mediaSendModal.classList.remove('hidden');
+        }
+        
+        // Обновляем заголовок
+        updateMediaTitle();
+    }
+    
+    // Сбрасываем значение input, чтобы можно было выбрать те же файлы снова
+    e.target.value = '';
 }
-// Обработчик отправки медиа
-mediaSendButton.addEventListener('click', async function() {
-    const file = fileInput.files[0];
-    if (!file) {
-        alert('Пожалуйста, выберите файл');
+
+function isFileDuplicate(newFile, existingFiles) {
+    return existingFiles.some(existingFile => 
+        existingFile.name === newFile.name &&
+        existingFile.size === newFile.size &&
+        existingFile.type === newFile.type &&
+        existingFile.lastModified === newFile.lastModified
+    );
+}
+
+
+
+function updateMediaPreview() {
+    const previewGrid = document.getElementById('media-preview-grid');
+    previewGrid.innerHTML = '';
+    
+    selectedFiles.forEach((file, index) => {
+        const previewItem = createPreviewItem(file, index);
+        previewGrid.appendChild(previewItem);
+    });
+    
+    // Обновляем индикатор количества
+    updateCountIndicator();
+}
+
+
+function createPreviewItem(file, index) {
+    const previewItem = document.createElement('div');
+    previewItem.className = 'media-preview-item';
+    previewItem.title = `${file.name} (${formatFileSize(file.size)})`;
+    
+    const isVideo = file.type.startsWith('video/');
+    const mediaType = isVideo ? 'video' : 'image';
+    
+    if (isVideo) {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.controls = false;
+        video.muted = true;
+        previewItem.appendChild(video);
+    } else {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        previewItem.appendChild(img);
+    }
+    
+    // Индикатор типа медиа
+    const typeIndicator = document.createElement('div');
+    typeIndicator.className = 'media-type-indicator';
+    typeIndicator.textContent = isVideo ? 'VIDEO' : 'IMG';
+    previewItem.appendChild(typeIndicator);
+    
+    // Кнопка удаления
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-media';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFile(index);
+    });
+    previewItem.appendChild(removeBtn);
+    
+    return previewItem;
+}
+
+
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    updateMediaPreview();
+    updateMediaTitle();
+}
+
+
+function updateMediaTitle() {
+    const title = document.getElementById('media-send-title');
+    const fileCount = selectedFiles.length;
+    
+    if (fileCount === 0) {
+        title.textContent = 'Отправить медиа';
+    } else {
+        const imageCount = selectedFiles.filter(f => f.type.startsWith('image/')).length;
+        const videoCount = selectedFiles.filter(f => f.type.startsWith('video/')).length;
+        
+        let typeText = '';
+        if (imageCount > 0 && videoCount > 0) {
+            typeText = `${imageCount} фото, ${videoCount} видео`;
+        } else if (imageCount > 0) {
+            typeText = `${imageCount} фото`;
+        } else if (videoCount > 0) {
+            typeText = `${videoCount} видео`;
+        }
+        
+        title.innerHTML = `Отправить медиа <span style="font-size: 14px; color: #666;">(${typeText})</span>`;
+    }
+}
+
+function updateCountIndicator() {
+    let countIndicator = document.getElementById('media-count-indicator');
+    
+    if (!countIndicator) {
+        countIndicator = document.createElement('div');
+        countIndicator.id = 'media-count-indicator';
+        countIndicator.className = 'media-count-indicator';
+        mediaSendModal.insertBefore(countIndicator, mediaSendModal.querySelector('.media-caption-input'));
+    }
+    
+    if (selectedFiles.length > 0) {
+        countIndicator.textContent = `Выбрано файлов: ${selectedFiles.length}/${MAX_FILES}`;
+        countIndicator.style.display = 'block';
+    } else {
+        countIndicator.style.display = 'none';
+    }
+}
+
+
+async function sendAllMedia() {
+    if (selectedFiles.length === 0) {
+        alert('Пожалуйста, выберите файлы для отправки');
         return;
     }
-
-    // Проверка размера файла (например, не более 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-        alert('Файл слишком большой (максимум 10MB)');
-        return;
-    }
-
+    
     const caption = mediaCaptionInput.value.trim();
     
     try {
+        // Показываем индикатор загрузки
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'loading-indicator';
+        loadingIndicator.textContent = `Отправка ${selectedFiles.length} файлов...`;
+        mediaSendModal.appendChild(loadingIndicator);
+        mediaSendButton.disabled = true;
+        
+        // Отправляем файлы по очереди
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            await sendSingleMediaFile(file, caption, i + 1, selectedFiles.length);
+        }
+        
+        closeMediaModal();
+        
+    } catch (error) {
+        console.error('Ошибка отправки файлов:', error);
+        alert('Ошибка при отправке файлов');
+    } finally {
+        document.querySelector('.loading-indicator')?.remove();
+        mediaSendButton.disabled = false;
+    }
+}
+
+async function sendSingleMediaFile(file, caption, currentIndex, totalCount) {
+    return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async (event) => {
             const fileData = event.target.result.split(',')[1];
             const fileType = file.type.startsWith('video/') ? 'video' : 'image';
             
-            // Показываем индикатор загрузки
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.className = 'loading-indicator';
-            loadingIndicator.textContent = 'Отправка...';
-            mediaSendModal.appendChild(loadingIndicator);
-            mediaSendButton.disabled = true;
-            
             try {
+                // Обновляем индикатор прогресса
+                const loadingIndicator = document.querySelector('.loading-indicator');
+                if (loadingIndicator) {
+                    loadingIndicator.textContent = `Отправка файла ${currentIndex}/${totalCount}: ${file.name}`;
+                }
+                
                 const result = await eel.send_media_message(
                     localStorage.getItem('user_id'),
                     currentChatUserId,
                     fileData,
                     fileType,
                     file.name,
-                    caption
+                    currentIndex === 1 ? caption : '' // Добавляем подпись только к первому файлу
                 )();
                 
                 if (result.success) {
@@ -3182,7 +3126,7 @@ mediaSendButton.addEventListener('click', async function() {
                         id: result.message_id,
                         sender_id: localStorage.getItem('user_id'),
                         receiver_id: currentChatUserId,
-                        text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
+                        text: caption && currentIndex === 1 ? caption : (fileType === 'video' ? '[Видео]' : '[Фото]'),
                         timestamp: result.timestamp,
                         read: result.read,
                         isMedia: true,
@@ -3194,36 +3138,51 @@ mediaSendButton.addEventListener('click', async function() {
                     addMessageToChat(message, true, true);
                     lastMessageId = message.id;
                     
+                    // Обновляем кеш активного чата
                     if (activeChats[currentChatUserId]) {
                         const messagesContainer = document.getElementById('chat-messages');
                         activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
                         activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                        
+                        if (!activeChats[currentChatUserId].messagesData) {
+                            activeChats[currentChatUserId].messagesData = [];
+                        }
+                        
+                        activeChats[currentChatUserId].messagesData.push({
+                            id: message.id,
+                            isMedia: true,
+                            mediaType: fileType,
+                            mediaData: fileData,
+                            text: message.text,
+                            filename: file.name
+                        });
                     }
                     
-                    updateLastMessageOnUserCard(
-                        currentChatUserId, 
-                        fileType === 'video' ? 'Видео' : 'Фото', 
-                        true
-                    );
+                    // Обновляем последнее сообщение на карточке (только для первого файла)
+                    if (currentIndex === 1) {
+                        updateLastMessageOnUserCard(
+                            currentChatUserId, 
+                            selectedFiles.length > 1 ? `${selectedFiles.length} медиа` : (fileType === 'video' ? 'Видео' : 'Фото'), 
+                            true
+                        );
+                    }
                     
-                    closeMediaModal();
+                    resolve();
                 } else {
-                    alert('Ошибка при отправке: ' + result.message);
+                    reject(new Error(`Ошибка при отправке файла ${file.name}: ${result.message}`));
                 }
             } catch (error) {
-                console.error('Ошибка отправки:', error);
-                alert('Ошибка при отправке файла');
-            } finally {
-                loadingIndicator.remove();
-                mediaSendButton.disabled = false;
+                reject(error);
             }
         };
+        
+        reader.onerror = () => reject(new Error(`Ошибка чтения файла ${file.name}`));
         reader.readAsDataURL(file);
-    } catch (error) {
-        console.error('Ошибка чтения файла:', error);
-        alert('Ошибка при обработке файла');
-    }
-});
+    });
+}
+
+
+
 
 mediaCancelButton.addEventListener('click', closeMediaModal);
 mediaSendOverlay.addEventListener('click', closeMediaModal);
@@ -3231,8 +3190,161 @@ mediaSendOverlay.addEventListener('click', closeMediaModal);
 function closeMediaModal() {
     mediaSendOverlay.classList.add('hidden');
     mediaSendModal.classList.add('hidden');
+    
+    // Очищаем выбранные файлы
     selectedFiles = [];
+    mediaCaptionInput.value = '';
+    
+    // Сбрасываем input file
+    const fileInput = document.getElementById('file-input');
+    fileInput.value = '';
+    fileInput.removeAttribute('multiple');
 }
+
+
+
+function formatMessageDate(timestamp) {
+    const messageDate = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const twoDaysAgo = new Date(today);
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    
+    // Сбрасываем время для сравнения только дат
+    const messageDateOnly = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const yesterdayOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+    const twoDaysAgoOnly = new Date(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate());
+    
+    if (messageDateOnly.getTime() === todayOnly.getTime()) {
+        return 'Сегодня';
+    } else if (messageDateOnly.getTime() === yesterdayOnly.getTime()) {
+        return 'Вчера';
+    } else if (messageDateOnly.getTime() === twoDaysAgoOnly.getTime()) {
+        return 'Позавчера';
+    } else {
+        // Проверяем, была ли дата на этой неделе
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
+        
+        if (messageDate >= startOfWeek) {
+            // Возвращаем день недели
+            const days = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+            return days[messageDate.getDay()];
+        } else {
+            // Форматируем полную дату
+            const months = [
+                'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+                'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+            ];
+            return `${messageDate.getDate()} ${months[messageDate.getMonth()]} ${messageDate.getFullYear()}`;
+        }
+    }
+}
+
+
+function createDateHeader(dateText, dateKey) {
+    const dateHeader = document.createElement('div');
+    dateHeader.className = 'date-header';
+    dateHeader.dataset.dateKey = dateKey;
+    
+    const dateContent = document.createElement('div');
+    dateContent.className = 'date-header-content';
+    dateContent.textContent = dateText;
+    
+    dateHeader.appendChild(dateContent);
+    return dateHeader;
+}
+
+function addDateHeaderToMessage(messageElement, timestamp) {
+    const dateKey = new Date(timestamp).toDateString(); // Уникальный ключ для каждой даты
+    const dateText = formatMessageDate(timestamp);
+    
+    // Если заголовок для этой даты уже существует, не создаем новый
+    if (dateHeaders.has(dateKey)) {
+        return;
+    }
+    
+    const dateHeader = createDateHeader(dateText, dateKey);
+    dateHeaders.set(dateKey, dateHeader);
+    
+    // Вставляем заголовок перед сообщением
+    const messagesContainer = document.getElementById('chat-messages');
+    messagesContainer.insertBefore(dateHeader, messageElement);
+}
+
+
+function updateStickyDateHeaders() {
+    const messagesWrapper = document.getElementById('chat-messages-wrapper');
+    if (!messagesWrapper) return;
+    
+    const scrollTop = messagesWrapper.scrollTop;
+    const dateHeaderElements = Array.from(document.querySelectorAll('.date-header'));
+    
+    let newStickyDate = null;
+    
+    // Находим текущий активный заголовок (последний видимый в верхней части)
+    for (let i = dateHeaderElements.length - 1; i >= 0; i--) {
+        const header = dateHeaderElements[i];
+        const rect = header.getBoundingClientRect();
+        const messagesWrapperRect = messagesWrapper.getBoundingClientRect();
+        
+        // Если заголовок находится в верхней части видимой области
+        if (rect.top <= messagesWrapperRect.top + 60 && rect.bottom > messagesWrapperRect.top) {
+            newStickyDate = header;
+            break;
+        }
+    }
+    
+    // Если не нашли заголовок в видимой области, берем первый
+    if (!newStickyDate && dateHeaderElements.length > 0) {
+        newStickyDate = dateHeaderElements[0];
+    }
+    
+    // Сбрасываем все sticky классы
+    dateHeaderElements.forEach(header => {
+        header.classList.remove('sticky');
+    });
+    
+    // Устанавливаем новый sticky заголовок
+    if (newStickyDate && newStickyDate !== currentStickyDate) {
+        newStickyDate.classList.add('sticky');
+        currentStickyDate = newStickyDate;
+    } else if (!newStickyDate) {
+        currentStickyDate = null;
+    }
+}
+function initDateHeadersSystem() {
+    const messagesWrapper = document.getElementById('chat-messages-wrapper');
+    if (!messagesWrapper) return;
+    
+    // Обработчик прокрутки
+    messagesWrapper.addEventListener('scroll', updateStickyDateHeaders);
+    
+    // Intersection Observer для отслеживания видимости заголовков
+    dateHeadersObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                // Если заголовок становится полностью видимым, снимаем sticky
+                if (entry.target.classList.contains('sticky')) {
+                    entry.target.classList.remove('sticky');
+                }
+            }
+        });
+    }, {
+        root: messagesWrapper,
+        threshold: 1.0
+    });
+    
+    // Наблюдаем за всеми заголовками
+    document.querySelectorAll('.date-header').forEach(header => {
+        dateHeadersObserver.observe(header);
+    });
+}
+
+
 
 function sendMedia() {
     if (selectedFiles.length === 0) {
@@ -3248,7 +3360,6 @@ function sendMedia() {
     closeMediaModal();
 }
 
-// Обработчик нажатия ESC для закрытия модального окна
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape' && !mediaSendOverlay.classList.contains('hidden')) {
         closeMediaModal();

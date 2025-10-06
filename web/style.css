@@ -2132,3 +2132,180 @@ body {
 .image-modal-overlay:not(.hidden) .image-modal-content {
     transform: scale(1);
 }
+
+
+/* Стили для сетки превью медиа */
+.media-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+}
+
+.media-preview-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.media-preview-item:hover {
+    transform: scale(1.05);
+}
+
+.media-preview-item img,
+.media-preview-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.media-preview-item .remove-media {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 20px;
+    height: 20px;
+    background-color: rgba(255, 0, 0, 0.8);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.media-preview-item .remove-media:hover {
+    background-color: rgba(255, 0, 0, 1);
+}
+
+.media-preview-item .media-type-indicator {
+    position: absolute;
+    bottom: 5px;
+    left: 5px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+}
+
+.media-count-indicator {
+    text-align: center;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+/* Адаптивность сетки */
+@media (max-width: 768px) {
+    .media-preview-grid {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        max-height: 300px;
+    }
+}
+
+/* Улучшенные стили для модального окна */
+.media-send-modal {
+    max-width: 600px;
+    width: 90%;
+}
+
+.media-send-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Добавьте в конец style.css */
+
+/* Контейнер для заголовков дат */
+.date-headers-container {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* Заголовок даты */
+.date-header {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0;
+    position: relative;
+}
+
+.date-header-content {
+    background-color: #4CAF50;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 15px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+    transition: all 0.3s ease;
+    max-width: 80%;
+    text-align: center;
+    position: relative;
+    z-index: 10;
+}
+
+/* Состояние когда заголовок "прилип" к верху */
+.date-header.sticky .date-header-content {
+    background-color: rgba(76, 175, 80, 0.8);
+    backdrop-filter: blur(5px);
+    font-size: 11px;
+    padding: 4px 10px;
+    box-shadow: 0 1px 4px rgba(76, 175, 80, 0.2);
+}
+
+/* Линия-разделитель для прилипшего заголовка */
+.date-header.sticky::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background-color: rgba(76, 175, 80, 0.3);
+    z-index: 1;
+}
+
+/* Анимация появления */
+@keyframes dateHeaderAppear {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.date-header:not(.sticky) .date-header-content {
+    animation: dateHeaderAppear 0.3s ease;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .date-header-content {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+    
+    .date-header.sticky .date-header-content {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+}
