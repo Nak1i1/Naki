@@ -2237,51 +2237,47 @@ body {
     pointer-events: none;
 }
 
-/* Заголовок даты */
 .date-header {
     display: flex;
     justify-content: center;
-    margin: 10px 0;
+    align-items: center;
+    margin: 15px 0;
     position: relative;
+    z-index: 5;
+    transition: all 0.3s ease;
 }
-
 .date-header-content {
-    background-color: #4CAF50;
+    background-color: #8fd96c;
     color: white;
     padding: 6px 12px;
-    border-radius: 15px;
-    font-size: 12px;
+    border-radius: 20px;
+    font-size: 13px;
     font-weight: 500;
-    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
-    transition: all 0.3s ease;
-    max-width: 80%;
     text-align: center;
-    position: relative;
-    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+}
+.date-header.sticky {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    margin: 0;
+    padding: 10px 0;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
 }
 
-/* Состояние когда заголовок "прилип" к верху */
 .date-header.sticky .date-header-content {
-    background-color: rgba(76, 175, 80, 0.8);
-    backdrop-filter: blur(5px);
-    font-size: 11px;
-    padding: 4px 10px;
-    box-shadow: 0 1px 4px rgba(76, 175, 80, 0.2);
+    background-color: rgba(143, 217, 108, 0.8);
+    color: rgba(255, 255, 255, 0.9);
+    transform: scale(0.95);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Линия-разделитель для прилипшего заголовка */
-.date-header.sticky::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background-color: rgba(76, 175, 80, 0.3);
-    z-index: 1;
-}
-
-/* Анимация появления */
+/* Анимация при появлении заголовка */
 @keyframes dateHeaderAppear {
     from {
         opacity: 0;
@@ -2293,19 +2289,37 @@ body {
     }
 }
 
-.date-header:not(.sticky) .date-header-content {
-    animation: dateHeaderAppear 0.3s ease;
+.date-header {
+    animation: dateHeaderAppear 0.3s ease-out;
 }
 
-/* Адаптивность */
+/* Адаптивность для мобильных устройств */
 @media (max-width: 768px) {
     .date-header-content {
-        font-size: 11px;
+        font-size: 12px;
         padding: 5px 10px;
     }
     
-    .date-header.sticky .date-header-content {
-        font-size: 10px;
-        padding: 3px 8px;
+    .date-header.sticky {
+        padding: 8px 0;
     }
+}
+
+/* Улучшенная видимость при прокрутке */
+.chat-scroll-container {
+    position: relative;
+}
+
+/* Гарантируем, что заголовки дат будут поверх сообщений */
+.chat-messages {
+    position: relative;
+    z-index: 1;
+}
+
+.date-header {
+    z-index: 10;
+}
+
+.date-header.sticky {
+    z-index: 100;
 }

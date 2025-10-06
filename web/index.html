@@ -65,9 +65,8 @@
     </div>
 <div class="chat-scroll-container">
     <div class="chat-messages-wrapper" id="chat-messages-wrapper">
-        <div class="date-headers-container" id="date-headers-container"></div>
         <div class="chat-messages" id="chat-messages">
-            <div class="no-messages">Нет сообщений</div>
+            <!-- Заголовки дат и сообщения будут добавляться сюда -->
         </div>
     </div>
     <div class="custom-scrollbar" id="custom-scrollbar">
@@ -835,6 +834,14 @@ async function openChat(userId) {
         document.querySelector('.message-input-container').classList.remove('expanded');
     }
     
+    // Сбрасываем систему дат
+    dateHeaders.clear();
+    currentStickyDate = null;
+    if (dateHeadersObserver) {
+        dateHeadersObserver.disconnect();
+        dateHeadersObserver = null;
+    }
+    
     if (readStatusInterval) clearInterval(readStatusInterval);
     if (statusUpdateInterval) clearInterval(statusUpdateInterval);
 
@@ -848,7 +855,7 @@ async function openChat(userId) {
             userId === localStorage.getItem('user_id') ? 'Избранное' : user.nickname;
         await updateUserStatus();
         
-        // Инициализируем кастомный скроллбар (добавлено для чата с самим собой)
+        // Инициализируем кастомный скроллбар
         initCustomScroll();
         
         if (activeChats[userId]) {
@@ -864,6 +871,9 @@ async function openChat(userId) {
                     } else {
                         messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
                     }
+                    // Инициализируем систему дат после восстановления позиции
+                    initDateHeadersSystem();
+                    updateStickyDateHeaders();
                 }
             }, 0);
             
@@ -1140,42 +1150,52 @@ async function loadChatHistory(userId) {
         const messagesContainer = document.getElementById('chat-messages');
         messagesContainer.innerHTML = '';
 
-        // Инициализируем activeChats[userId] если его нет
+        // Сбрасываем карту заголовков
+        dateHeaders.clear();
+        currentStickyDate = null;
+
         if (!activeChats[userId]) {
             activeChats[userId] = {
                 messages: '',
                 lastMessageId: null,
-                messagesData: []  // Добавляем инициализацию messagesData
+                messagesData: []
             };
         }
 
         if (messages && Array.isArray(messages) && messages.length > 0) {
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
-            // Сохраняем данные сообщений
             const messagesData = [];
+            let currentDateKey = null;
             
             for (const msg of messages) {
                 const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
+                
+                // Проверяем, нужно ли добавить заголовок даты
+                const messageDate = new Date(msg.timestamp);
+                const messageDateKey = messageDate.toDateString();
+                
+                if (messageDateKey !== currentDateKey) {
+                    const dateText = formatMessageDate(msg.timestamp);
+                    const dateHeader = createDateHeader(dateText, messageDateKey);
+                    messagesContainer.appendChild(dateHeader);
+                    dateHeaders.set(messageDateKey, dateHeader);
+                    currentDateKey = messageDateKey;
+                }
+                
                 const messageElement = await addMessageToChat(msg, isMyMessage, false);
                 
-                // Сохраняем данные медиафайлов для последующего использования
+                // Сохраняем данные сообщения
                 if (msg.isMedia || msg.is_media) {
-                    const mediaData = {
+                    messagesData.push({
                         id: msg.id,
                         isMedia: true,
                         mediaType: msg.media_type,
                         file_id: msg.file_id,
                         filename: msg.filename,
-                        text: msg.text
-                    };
-                    
-                    // Если есть данные медиа в сообщении, сохраняем их
-                    if (msg.mediaData) {
-                        mediaData.mediaData = msg.mediaData;
-                    }
-                    
-                    messagesData.push(mediaData);
+                        text: msg.text,
+                        mediaData: msg.mediaData
+                    });
                 } else if (msg.isVoiceMessage || msg.is_voice) {
                     messagesData.push({
                         id: msg.id,
@@ -1185,7 +1205,6 @@ async function loadChatHistory(userId) {
                         listened: msg.listened || false
                     });
                 } else {
-                    // Для текстовых сообщений тоже сохраняем базовые данные
                     messagesData.push({
                         id: msg.id,
                         text: msg.text,
@@ -1200,11 +1219,14 @@ async function loadChatHistory(userId) {
             activeChats[userId] = {
                 messages: messagesContainer.innerHTML,
                 lastMessageId: lastMessageId,
-                messagesData: messagesData // Сохраняем данные сообщений
+                messagesData: messagesData
             };
             
-            // Прокручиваем вниз только если позиция не сохранена
+            // Инициализируем систему заголовков после загрузки истории
             setTimeout(() => {
+                initDateHeadersSystem();
+                updateStickyDateHeaders();
+                
                 const messagesWrapper = document.getElementById('chat-messages-wrapper');
                 if (messagesWrapper) {
                     if (scrollPositions[userId] !== undefined) {
@@ -1219,11 +1241,10 @@ async function loadChatHistory(userId) {
         } else {
             messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
             lastMessageId = null;
-            
             activeChats[userId] = {
                 messages: messagesContainer.innerHTML,
                 lastMessageId: null,
-                messagesData: []  // Инициализируем пустым массивом
+                messagesData: []
             };
         }
     } catch (error) {
@@ -1354,6 +1375,38 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     messageElement.className = `message ${isMyMessage ? 'my-message' : 'their-message'}`;
     messageElement.dataset.id = message.id || '';
     messageElement.dataset.sender_id = message.sender_id || '';
+    messageElement.dataset.timestamp = message.timestamp || new Date().toISOString();
+    
+    // Добавляем заголовок даты для этого сообщения (если нужно)
+    const messageTimestamp = message.timestamp || new Date().toISOString();
+    const dateKey = new Date(messageTimestamp).toDateString();
+    const dateText = formatMessageDate(messageTimestamp);
+    
+    // Если заголовок для этой даты еще не существует, создаем его
+    if (!dateHeaders.has(dateKey)) {
+        const dateHeader = createDateHeader(dateText, dateKey);
+        
+        // Находим правильную позицию для вставки заголовка
+        const allMessages = Array.from(messagesContainer.querySelectorAll('.message'));
+        const currentMessageTime = new Date(messageTimestamp).getTime();
+        
+        let insertBeforeElement = messageElement;
+        
+        // Ищем место для вставки относительно существующих сообщений
+        for (let i = 0; i < allMessages.length; i++) {
+            const existingMessage = allMessages[i];
+            const existingTime = new Date(existingMessage.dataset.timestamp).getTime();
+            
+            if (currentMessageTime < existingTime) {
+                insertBeforeElement = existingMessage;
+                break;
+            }
+        }
+        
+        // Вставляем заголовок перед сообщением
+        messagesContainer.insertBefore(dateHeader, insertBeforeElement);
+        dateHeaders.set(dateKey, dateHeader);
+    }
     
     // Добавляем контент в зависимости от типа сообщения
     if (message.isMedia || message.is_media) {
@@ -1362,13 +1415,12 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         
         const mediaType = message.mediaType || (message.is_media ? message.media_type : null);
         
-if (mediaType === 'image') {
-    const img = document.createElement('img');
-    img.className = 'media-preview'; // Этот класс обязателен
-    img.alt = 'Фото';
-    img.loading = 'lazy';
+        if (mediaType === 'image') {
+            const img = document.createElement('img');
+            img.className = 'media-preview';
+            img.alt = 'Фото';
+            img.loading = 'lazy';
 
-            
             // Проверяем, есть ли данные в кеше активного чата
             let mediaDataFromCache = null;
             if (activeChats[currentChatUserId]?.messagesData) {
@@ -1445,7 +1497,7 @@ if (mediaType === 'image') {
                 }
             }
         } else if (mediaType === 'video') {
-            // Обработка видео (аналогично изображениям)
+            // Обработка видео
             const videoContainer = document.createElement('div');
             videoContainer.className = 'video-message-container';
             
@@ -1573,6 +1625,38 @@ if (mediaType === 'image') {
                 activeChats[currentChatUserId].messagesData.push(mediaData);
             }
         }
+    } else if ((message.isVoiceMessage || message.is_voice) && activeChats[currentChatUserId]?.messagesData) {
+        // Сохраняем данные голосового сообщения
+        if (!activeChats[currentChatUserId].messagesData.find(m => m.id === message.id)) {
+            if (!activeChats[currentChatUserId]) {
+                activeChats[currentChatUserId] = {
+                    messages: '',
+                    lastMessageId: null,
+                    messagesData: []
+                };
+            }
+            
+            if (!activeChats[currentChatUserId].messagesData) {
+                activeChats[currentChatUserId].messagesData = [];
+            }
+            
+            activeChats[currentChatUserId].messagesData.push({
+                id: message.id,
+                voiceData: message.voiceData,
+                duration: message.duration,
+                isVoiceMessage: true,
+                listened: message.listened || false,
+                visualization: message.visualization || []
+            });
+        }
+    }
+    
+    // Инициализируем систему заголовков после добавления сообщения
+    if (!dateHeadersObserver) {
+        setTimeout(() => {
+            initDateHeadersSystem();
+            updateStickyDateHeaders();
+        }, 0);
     }
     
     // Прокручиваем вниз, если нужно
@@ -1581,6 +1665,8 @@ if (mediaType === 'image') {
             const messagesWrapper = document.getElementById('chat-messages-wrapper');
             if (messagesWrapper) {
                 messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+                // Обновляем sticky заголовки после прокрутки
+                setTimeout(updateStickyDateHeaders, 100);
             }
         }, 0);
     }
@@ -1652,7 +1738,6 @@ async function saveVideoToLocalStorage(messageId, videoData) {
     }
 }
 
-// Функция для форматирования времени сообщения
 function formatMessageTime(timestamp) {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -3316,6 +3401,10 @@ function updateStickyDateHeaders() {
         currentStickyDate = null;
     }
 }
+
+
+
+
 function initDateHeadersSystem() {
     const messagesWrapper = document.getElementById('chat-messages-wrapper');
     if (!messagesWrapper) return;
