@@ -970,9 +970,13 @@ def get_last_message(user1_id, user2_id):
         logger.error(f"Error getting last message: {e}")
         return None
     
+import sys
+
 # Запуск приложения
 if __name__ == '__main__':
     try:
-        eel.start('login.html', size=(1000, 700), mode='chrome', port=8000)
+        # Получаем порт из аргументов командной строки, или используем 8000 по умолчанию
+        port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+        eel.start('login.html', size=(1000, 700), mode='chrome', port=port)
     except Exception as e:
         logger.error(f"Ошибка запуска приложения: {e}")
