@@ -289,17 +289,42 @@ document.addEventListener('click', function(e) {
 });
 
 
+
 document.addEventListener('DOMContentLoaded', async function() {
-    // Проверяем авторизацию
     const user_id = localStorage.getItem('user_id');
     if (!user_id) {
         window.location.href = 'login.html';
         return;
     }
 
-    // Сначала инициализируем базовые функции
+    // Улучшенная инициализация ZK системы
+    let keyInitialized = false;
+    
+    // Пробуем восстановить ключ если есть соль
+    const storedSalt = localStorage.getItem('user_salt');
+    if (storedSalt) {
+        keyInitialized = await restoreUserKey();
+    }
+    
+    // Если не удалось восстановить, запрашиваем пароль
+    if (!keyInitialized) {
+        const userPassword = prompt("Введите ваш пароль для расшифровки сообщений:");
+        if (!userPassword) {
+            alert("Пароль обязателен для работы мессенджера");
+            window.location.href = 'login.html';
+            return;
+        }
+        
+        keyInitialized = await initializeUserKey(userPassword);
+        if (!keyInitialized) {
+            alert("Ошибка инициализации системы безопасности");
+            return;
+        }
+    }
+
+    // Продолжаем остальную инициализацию...
     initCustomScroll();
-    initImageModal(); // Теперь эта функция будет определена
+    initImageModal();
 
     // Добавляем обработчик перед выгрузкой страницы
     window.addEventListener('beforeunload', function() {
@@ -364,12 +389,17 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('logout-close-btn').addEventListener('click', closeLogoutModal);
     document.getElementById('logout-cancel-btn').addEventListener('click', closeLogoutModal);
     document.getElementById('logout-overlay').addEventListener('click', closeLogoutModal);
-    document.getElementById('logout-confirm-btn').addEventListener('click', function() {
-        eel.update_last_online(localStorage.getItem('user_id'))();
-        localStorage.removeItem('user_id');
-        window.location.href = 'login.html';
-    });
-
+document.getElementById('logout-confirm-btn').addEventListener('click', function() {
+    // Очищаем ZK данные при выходе
+    userEncryptionKey = null;
+    localStorage.removeItem('zk_initialized');
+    localStorage.removeItem('user_salt');
+    sessionStorage.removeItem('user_password');
+    localStorage.removeItem('user_id');
+    
+    eel.update_last_online(localStorage.getItem('user_id'))();
+    window.location.href = 'login.html';
+});
     // Обработчик нажатия ESC
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
@@ -443,12 +473,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    document.getElementById('message-input').addEventListener('keypress', async function(e) {
-        if (e.key === 'Enter' && this.value.trim()) {
-            await sendMessage(this.value.trim());
-            this.value = '';
+document.getElementById('message-input').addEventListener('keypress', async function(e) {
+    if (e.key === 'Enter' && this.value.trim()) {
+        if (userEncryptionKey) {
+            await sendZKMessage(this.value.trim());
+        } else {
+            alert('Система безопасности не инициализирована');
         }
-    });
+    }
+});
 
     // Инициализация голосовых сообщений
     document.getElementById('voice-message-btn').addEventListener('mousedown', startRecording);
@@ -758,6 +791,79 @@ async function loadVideoMessage(messageId) {
 
 
 
+async function restoreUserKey() {
+    try {
+        const storedSalt = localStorage.getItem('user_salt');
+        if (!storedSalt) {
+            console.log('Соль не найдена в localStorage');
+            return false;
+        }
+        
+        // Получаем пароль из sessionStorage
+        let userPassword = sessionStorage.getItem('user_password');
+        if (!userPassword) {
+            // Если пароля нет, запрашиваем его
+            userPassword = prompt("Введите ваш пароль для расшифровки сообщений:");
+            if (!userPassword) {
+                return false;
+            }
+            // Сохраняем пароль в sessionStorage
+            sessionStorage.setItem('user_password', userPassword);
+        }
+        
+        // Правильная конвертация base64 в Uint8Array
+        const saltBytes = Uint8Array.from(atob(storedSalt), c => c.charCodeAt(0));
+        
+        // Генерируем ключ
+        userEncryptionKey = await zkCrypto.deriveKey(userPassword, saltBytes);
+        
+        // Тестируем ключ
+        const testResult = await testEncryptionKey();
+        if (!testResult) {
+            throw new Error('Ключ не прошел проверку');
+        }
+        
+        console.log('ZK система восстановлена успешно');
+        return true;
+        
+    } catch (error) {
+        console.error('Error restoring user key:', error);
+        // При ошибке очищаем данные и запрашиваем пароль заново
+        sessionStorage.removeItem('user_password');
+        userEncryptionKey = null;
+        return false;
+    }
+}
+
+
+
+
+
+
+
+async function loadZKVideoMessage(messageId) {
+    try {
+        const response = await eel.get_media_message(messageId)();
+        if (response.success && userEncryptionKey) {
+            const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+            const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+            
+            if (!videoElement || !loadingElement) return;
+            
+            // Расшифровываем видео
+            const decryptedData = await zkCrypto.decryptFile(response.encrypted_media_data, userEncryptionKey);
+            const blob = new Blob([decryptedData], { type: 'video/mp4' });
+            videoElement.src = URL.createObjectURL(blob);
+            
+            loadingElement.classList.add('hidden');
+            videoElement.classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки ZK видео:', error);
+    }
+}
+
+
 
 async function checkAndRestoreReplyState() {
     if (!currentChatUserId) return;
@@ -881,7 +987,7 @@ async function openChat(userId) {
             await updateListenIndicators();
             setupVoiceMessageHandlers();
         } else {
-            await loadChatHistory(userId);
+            await loadZKChatHistory(userId); 
         }
         
         // Восстанавливаем текст из черновика или из кеша
@@ -1009,17 +1115,30 @@ function setupVoiceMessageHandlers() {
                 if (isMyMessage) {
                     const messageId = messageElement.dataset.id;
                     const cachedMessage = activeChats[currentChatUserId]?.messagesData?.find(m => m.id === messageId);
-                    if (cachedMessage && cachedMessage.voiceData) {
-                        playVoiceMessage(cachedMessage.voiceData, voiceMessage, cachedMessage.duration);
-                        return;
+                    if (cachedMessage && cachedMessage.voiceData && userEncryptionKey) {
+                        try {
+                            const decryptedData = await zkCrypto.decryptFile(cachedMessage.voiceData, userEncryptionKey);
+                            const audioBlob = new Blob([decryptedData], { type: 'audio/wav' });
+                            playZKVoiceMessage(audioBlob, voiceMessage, cachedMessage.duration);
+                            return;
+                        } catch (error) {
+                            console.error('Error decrypting cached voice message:', error);
+                        }
                     }
                 }
                 
                 // Для чужих сообщений запрашиваем данные с сервера
                 const messageId = messageElement.dataset.id;
                 const response = await eel.get_voice_message(messageId)();
-                if (response.success) {
-                    playVoiceMessage(response.voice_data, voiceMessage, response.duration);
+                if (response.success && userEncryptionKey) {
+                    try {
+                        const decryptedData = await zkCrypto.decryptFile(response.encrypted_voice_data, userEncryptionKey);
+                        const audioBlob = new Blob([decryptedData], { type: 'audio/wav' });
+                        playZKVoiceMessage(audioBlob, voiceMessage, response.duration);
+                    } catch (error) {
+                        console.error('Error decrypting voice message:', error);
+                        alert('Не удалось расшифровать голосовое сообщение');
+                    }
                 } else {
                     alert('Не удалось загрузить голосовое сообщение');
                 }
@@ -1027,6 +1146,14 @@ function setupVoiceMessageHandlers() {
         });
     });
 }
+
+
+
+
+
+
+
+
 
         async function updateUserStatus() {
             if (!currentChatUserId) return;
@@ -1359,6 +1486,11 @@ async function sendMessage(text) {
 async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     const messagesContainer = document.getElementById('chat-messages');
     
+    if (!messagesContainer) {
+        console.error('Messages container not found');
+        return null;
+    }
+    
     // Удаляем сообщение "Нет сообщений", если оно есть
     const noMessagesDiv = messagesContainer.querySelector('.no-messages');
     if (noMessagesDiv) {
@@ -1386,26 +1518,13 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     if (!dateHeaders.has(dateKey)) {
         const dateHeader = createDateHeader(dateText, dateKey);
         
-        // Находим правильную позицию для вставки заголовка
-        const allMessages = Array.from(messagesContainer.querySelectorAll('.message'));
-        const currentMessageTime = new Date(messageTimestamp).getTime();
-        
-        let insertBeforeElement = messageElement;
-        
-        // Ищем место для вставки относительно существующих сообщений
-        for (let i = 0; i < allMessages.length; i++) {
-            const existingMessage = allMessages[i];
-            const existingTime = new Date(existingMessage.dataset.timestamp).getTime();
-            
-            if (currentMessageTime < existingTime) {
-                insertBeforeElement = existingMessage;
-                break;
-            }
+        // Безопасная вставка заголовка
+        try {
+            messagesContainer.appendChild(dateHeader);
+            dateHeaders.set(dateKey, dateHeader);
+        } catch (error) {
+            console.error('Error adding date header:', error);
         }
-        
-        // Вставляем заголовок перед сообщением
-        messagesContainer.insertBefore(dateHeader, insertBeforeElement);
-        dateHeaders.set(dateKey, dateHeader);
     }
     
     // Добавляем контент в зависимости от типа сообщения
@@ -1514,7 +1633,7 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
                 <div class="video-load-text">Загрузить видео</div>
             `;
             
-            loadingElement.addEventListener('click', () => loadVideoMessage(message.id));
+            loadingElement.addEventListener('click', () => loadZKVideoMessage(message.id));
             
             videoContainer.appendChild(loadingElement);
             videoContainer.appendChild(videoElement);
@@ -1594,8 +1713,13 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         window.showMessageContextMenu(e);
     });
     
-    // Добавляем сообщение в контейнер
-    messagesContainer.appendChild(messageElement);
+    // Безопасное добавление сообщения в контейнер
+    try {
+        messagesContainer.appendChild(messageElement);
+    } catch (error) {
+        console.error('Error adding message to container:', error);
+        return null;
+    }
     
     // Сохраняем данные сообщения в кеш активного чата
     if ((message.isMedia || message.is_media) && activeChats[currentChatUserId]?.messagesData) {
@@ -1647,6 +1771,20 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
                 isVoiceMessage: true,
                 listened: message.listened || false,
                 visualization: message.visualization || []
+            });
+        }
+    } else if (!message.isMedia && !message.is_media && !message.isVoiceMessage && !message.is_voice) {
+        // Сохраняем текстовые сообщения
+        if (activeChats[currentChatUserId] && !activeChats[currentChatUserId].messagesData.find(m => m.id === message.id)) {
+            if (!activeChats[currentChatUserId].messagesData) {
+                activeChats[currentChatUserId].messagesData = [];
+            }
+            
+            activeChats[currentChatUserId].messagesData.push({
+                id: message.id,
+                text: message.text,
+                sender_id: message.sender_id,
+                timestamp: message.timestamp
             });
         }
     }
@@ -1865,100 +2003,101 @@ async function checkForNewMessages() {
     }
 }
         
-        async function loadFriends() {
-            const user_id = localStorage.getItem('user_id');
-            try {
-                currentUser = await eel.get_user_data(user_id)();
-                
-                const container = document.getElementById('user-container');
-                container.innerHTML = '';
-                
-                // Добавляем карточку текущего пользователя
-                const selfCard = createUserCard({
-                    user_id: user_id,
-                    nickname: currentUser.nickname,
-                    isCurrentUser: true
-                });
-                container.appendChild(selfCard);
-                
-                // Добавляем друзей
-                if (currentUser.friends && currentUser.friends.length > 0) {
-                    for (const friendId of currentUser.friends) {
-                        const friend = await eel.get_user_data(friendId)();
-                        if (friend) {
-                            // Получаем последнее сообщение
-                            const lastMessage = await eel.get_last_message(user_id, friendId)();
-                            const friendCard = createUserCard({
-                                user_id: friendId,
-                                nickname: friend.nickname,
-                                isFriend: true,
-                                lastMessage: lastMessage
-                            });
-                            container.appendChild(friendCard);
-                        }
-                    }
-                    
-                    updateOnlineStatusInContacts();
-                } else {
-                    const noFriends = document.createElement('div');
-                    noFriends.className = 'no-friends';
-                    noFriends.textContent = 'У вас пока нет друзей. Найдите их через поиск!';
-                    container.appendChild(noFriends);
+ async function loadFriends() {
+    const user_id = localStorage.getItem('user_id');
+    try {
+        currentUser = await eel.get_user_data(user_id)();
+        
+        const container = document.getElementById('user-container');
+        container.innerHTML = '';
+        
+        // Добавляем карточку текущего пользователя
+        const selfCard = createUserCard({
+            user_id: user_id,
+            nickname: currentUser.nickname,
+            isCurrentUser: true
+        });
+        container.appendChild(selfCard);
+        
+        // Добавляем друзей
+        if (currentUser.friends && currentUser.friends.length > 0) {
+            for (const friendId of currentUser.friends) {
+                const friend = await eel.get_user_data(friendId)();
+                if (friend) {
+                    // Получаем последнее сообщение
+                    const lastMessage = await eel.get_last_message(user_id, friendId)();
+                    const friendCard = createUserCard({
+                        user_id: friendId,
+                        nickname: friend.nickname, // Используем nickname из user_data
+                        isFriend: true,
+                        lastMessage: lastMessage
+                    });
+                    container.appendChild(friendCard);
                 }
-            } catch (error) {
-                console.error('Error loading friends:', error);
             }
+            
+            updateOnlineStatusInContacts();
+        } else {
+            const noFriends = document.createElement('div');
+            noFriends.className = 'no-friends';
+            noFriends.textContent = 'У вас пока нет друзей. Найдите их через поиск!';
+            container.appendChild(noFriends);
         }
+    } catch (error) {
+        console.error('Error loading friends:', error);
+    }
+}
 
-        function createUserCard(userData) {
-            const card = document.createElement('div');
-            card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
-            card.dataset.userId = userData.user_id;
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'avatar-medium';
-            avatar.style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
-            
-            const contentWrapper = document.createElement('div');
-            contentWrapper.className = 'user-content-wrapper';
-            
-            const username = document.createElement('div');
-            username.className = 'username';
-            username.textContent = userData.isCurrentUser ? `Вы (${userData.nickname})` : userData.nickname;
-            
-            contentWrapper.appendChild(username);
-            
-            // Добавляем последнее сообщение, если оно есть
-            if (userData.lastMessage && !userData.isCurrentUser) {
-                const lastMsgDiv = document.createElement('div');
-                lastMsgDiv.className = 'last-message';
-                
-                let messageText = userData.lastMessage.text;
-                if (messageText.length > 25) {
-                    messageText = messageText.substring(0, 22) + '...';
-                }
-                
-                if (userData.lastMessage.sender_id === localStorage.getItem('user_id')) {
-                    lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${messageText}`;
-                } else {
-                    lastMsgDiv.textContent = messageText;
-                }
-                
-                contentWrapper.appendChild(lastMsgDiv);
-            }
-            
-            card.appendChild(avatar);
-            card.appendChild(contentWrapper);
-            
-            if (!userData.isCurrentUser) {
-                card.addEventListener('contextmenu', function(e) {
-                    e.preventDefault();
-                    showContextMenu(e, userData);
-                });
-            }
-            
-            return card;
+function createUserCard(userData) {
+    const card = document.createElement('div');
+    card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
+    card.dataset.userId = userData.user_id;
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar-medium';
+    avatar.style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
+    
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'user-content-wrapper';
+    
+    const username = document.createElement('div');
+    username.className = 'username';
+    // Для ZK архитектуры используем ID как отображаемое имя
+    username.textContent = userData.isCurrentUser ? 'Вы' : `Пользователь ${userData.user_id.substring(0, 8)}`;
+    
+    contentWrapper.appendChild(username);
+    
+    // Добавляем последнее сообщение, если оно есть
+    if (userData.lastMessage && !userData.isCurrentUser) {
+        const lastMsgDiv = document.createElement('div');
+        lastMsgDiv.className = 'last-message';
+        
+        let messageText = userData.lastMessage.text;
+        if (messageText.length > 25) {
+            messageText = messageText.substring(0, 22) + '...';
         }
+        
+        if (userData.lastMessage.sender_id === localStorage.getItem('user_id')) {
+            lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${messageText}`;
+        } else {
+            lastMsgDiv.textContent = messageText;
+        }
+        
+        contentWrapper.appendChild(lastMsgDiv);
+    }
+    
+    card.appendChild(avatar);
+    card.appendChild(contentWrapper);
+    
+    if (!userData.isCurrentUser) {
+        card.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showContextMenu(e, userData);
+        });
+    }
+    
+    return card;
+}
 
         function showContextMenu(e, userData) {
             closeContextMenu();
@@ -2079,7 +2218,7 @@ async function checkForNewMessages() {
             }
             
             const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-            await sendVoiceMessage(audioBlob, recordingTime);
+            await sendZKVoiceMessage(audioBlob, recordingTime);
         };
         
         mediaRecorder.start(100);
@@ -2592,7 +2731,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initMessageContextMenu();
 });
 
-function playVoiceMessage(audioData, voiceMessageElement, duration) {
+function playZKVoiceMessage(audioBlob, voiceMessageElement, duration) {
     // Останавливаем текущее воспроизведение, если есть
     if (currentPlayingAudio) {
         currentPlayingAudio.pause();
@@ -2608,12 +2747,13 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
     voiceMessagePlaying = true;
     currentPlayingVoiceElement = voiceMessageElement;
     
-    // Используем правильный MIME-тип для аудио
-    const audio = new Audio(`data:audio/ogg;base64,${audioData}`);
+    // Создаем URL для аудио blob
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
     currentPlayingAudio = audio;
     
     const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
-    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonка-pauzi-png-30.png';
+    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
     
     const progressBar = voiceMessageElement.querySelector('.voice-progress');
     progressBar.style.display = 'block';
@@ -2669,16 +2809,47 @@ function playVoiceMessage(audioData, voiceMessageElement, duration) {
         console.error('Audio error:', e);
         stopVoiceMessage(voiceMessageElement, true);
         alert('Ошибка воспроизведения голосового сообщения');
+        
+        // Освобождаем URL
+        URL.revokeObjectURL(audioUrl);
     });
     
-    // Запускаем воспроизведение
-    audio.play().then(() => {
-        updateProgress();
-    }).catch(error => {
-        console.error('Ошибка воспроизведения:', error);
-        stopVoiceMessage(voiceMessageElement, true);
+    audio.addEventListener('canplaythrough', () => {
+        // Запускаем воспроизведение когда аудио готово
+        audio.play().then(() => {
+            updateProgress();
+        }).catch(error => {
+            console.error('Ошибка воспроизведения:', error);
+            stopVoiceMessage(voiceMessageElement, true);
+            URL.revokeObjectURL(audioUrl);
+        });
     });
+    
+    audio.addEventListener('load', () => {
+        // Освобождаем URL после загрузки
+        URL.revokeObjectURL(audioUrl);
+    });
+    
+    // Обработчик для очистки при завершении
+    const cleanup = () => {
+        URL.revokeObjectURL(audioUrl);
+        audio.removeEventListener('ended', cleanup);
+        audio.removeEventListener('error', cleanup);
+    };
+    
+    audio.addEventListener('ended', cleanup);
+    audio.addEventListener('error', cleanup);
 }
+
+
+
+
+
+
+
+
+
+
 
 function handleVoiceMessagePlayed(voiceMessageElement) {
     const messageElement = voiceMessageElement.closest('.message');
@@ -3169,7 +3340,7 @@ async function sendAllMedia() {
         // Отправляем файлы по очереди
         for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
-            await sendSingleMediaFile(file, caption, i + 1, selectedFiles.length);
+           await sendZKMediaMessage(file, i === 0 ? caption : '');
         }
         
         closeMediaModal();
@@ -3467,6 +3638,456 @@ function positionPhotoMenu() {
 
 // Обновляем позицию при изменении размера окна
 window.addEventListener('resize', positionPhotoMenu);
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Zero-Knowledge Encryption Module
+class ZKEncryption {
+    constructor() {
+        this.userKey = null;
+        this.salt = null;
+    }
+
+    async deriveKey(password, salt) {
+        const encoder = new TextEncoder();
+        const keyMaterial = await window.crypto.subtle.importKey(
+            'raw',
+            encoder.encode(password),
+            'PBKDF2',
+            false,
+            ['deriveBits', 'deriveKey']
+        );
+
+        const key = await window.crypto.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 100000,
+                hash: 'SHA-256'
+            },
+            keyMaterial,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+
+        return key;
+    }
+
+    async generateSalt() {
+        return window.crypto.getRandomValues(new Uint8Array(16));
+    }
+
+    async encryptText(text, key) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(text);
+        
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        
+        const encrypted = await window.crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            data
+        );
+
+        const combined = new Uint8Array(iv.length + encrypted.byteLength);
+        combined.set(iv);
+        combined.set(new Uint8Array(encrypted), iv.length);
+
+        return btoa(String.fromCharCode(...combined));
+    }
+
+    async decryptText(encryptedData, key) {
+        try {
+            const combined = new Uint8Array(atob(encryptedData).split('').map(char => char.charCodeAt(0)));
+            
+            const iv = combined.slice(0, 12);
+            const data = combined.slice(12);
+            
+            const decrypted = await window.crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                key,
+                data
+            );
+
+            const decoder = new TextDecoder();
+            return decoder.decode(decrypted);
+        } catch (error) {
+            console.error('Decryption error:', error);
+            throw new Error('Failed to decrypt data');
+        }
+    }
+
+    async encryptFile(file, key) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const arrayBuffer = reader.result;
+                    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                    
+                    const encrypted = await window.crypto.subtle.encrypt(
+                        {
+                            name: 'AES-GCM',
+                            iv: iv
+                        },
+                        key,
+                        arrayBuffer
+                    );
+
+                    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+                    combined.set(iv);
+                    combined.set(new Uint8Array(encrypted), iv.length);
+
+                    resolve(btoa(String.fromCharCode(...combined)));
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    async decryptFile(encryptedData, key) {
+        const combined = new Uint8Array(atob(encryptedData).split('').map(char => char.charCodeAt(0)));
+        
+        const iv = combined.slice(0, 12);
+        const data = combined.slice(12);
+        
+        const decrypted = await window.crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            data
+        );
+
+        return decrypted;
+    }
+}
+
+// Инициализация ZK системы
+const zkCrypto = new ZKEncryption();
+let userEncryptionKey = null;
+
+async function sendZKMessage(text) {
+    if (!currentChatUserId || !text || !userEncryptionKey) return;
+    
+    try {
+        // Шифруем сообщение
+        const encryptedText = await zkCrypto.encryptText(text, userEncryptionKey);
+        
+        const result = await eel.send_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedText
+        )();
+        
+        if (result.success) {
+            // Добавляем сообщение в чат (расшифрованное, т.к. это наше сообщение)
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: text,
+                timestamp: result.timestamp,
+                read: result.read,
+                is_encrypted: true
+            };
+            
+            await addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем UI
+            updateLastMessageOnUserCard(currentChatUserId, text, true);
+            
+            // Очищаем поле ввода
+            document.getElementById('message-input').value = '';
+        }
+    } catch (error) {
+        console.error('Error sending ZK message:', error);
+    }
+}
+
+
+async function loadZKChatHistory(userId) {
+    try {
+        const messages = await eel.get_chat_history(localStorage.getItem('user_id'), userId)();
+        const messagesContainer = document.getElementById('chat-messages');
+        messagesContainer.innerHTML = '';
+
+        dateHeaders.clear();
+        currentStickyDate = null;
+        if (dateHeadersObserver) {
+            dateHeadersObserver.disconnect();
+            dateHeadersObserver = null;
+        }
+
+        if (messages && Array.isArray(messages) && messages.length > 0) {
+            let currentDateKey = null;
+            let decryptionErrors = 0;
+            let totalEncryptedMessages = 0;
+            
+            for (const msg of messages) {
+                let displayText = msg.text || '[Сообщение]';
+                
+                // Обрабатываем только зашифрованные сообщения
+                if (msg.is_encrypted && msg.encrypted_text && userEncryptionKey) {
+                    totalEncryptedMessages++;
+                    try {
+                        const decryptedText = await zkCrypto.decryptText(msg.encrypted_text, userEncryptionKey);
+                        displayText = decryptedText;
+                    } catch (error) {
+                        console.error('Failed to decrypt message:', error);
+                        displayText = '[Не удалось расшифровать]';
+                        decryptionErrors++;
+                    }
+                }
+                // Для незашифрованных сообщений используем обычный текст
+                else if (msg.text) {
+                    displayText = msg.text;
+                }
+                
+                const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
+                const messageWithText = {
+                    ...msg,
+                    text: displayText,
+                    isMedia: msg.is_media,
+                    isVoiceMessage: msg.is_voice,
+                    mediaType: msg.media_type,
+                    duration: msg.duration
+                };
+                
+                await addMessageToChat(messageWithText, isMyMessage, false);
+            }
+            
+            console.log(`Расшифровано: ${totalEncryptedMessages - decryptionErrors}/${totalEncryptedMessages}, ошибок: ${decryptionErrors}`);
+            
+            // Показываем предупреждение только если есть зашифрованные сообщения и большинство не расшифровывается
+            if (totalEncryptedMessages > 0 && decryptionErrors > totalEncryptedMessages * 0.3) {
+                console.warn(`Много ошибок дешифрования: ${decryptionErrors} из ${totalEncryptedMessages}`);
+                if (confirm('Обнаружены проблемы с расшифровкой сообщений. Перезайти в систему?')) {
+                    localStorage.removeItem('zk_initialized');
+                    localStorage.removeItem('user_salt');
+                    sessionStorage.removeItem('user_password');
+                    userEncryptionKey = null;
+                    window.location.reload();
+                    return;
+                }
+            }
+            
+            setTimeout(() => {
+                initDateHeadersSystem();
+                updateStickyDateHeaders();
+                
+                const messagesWrapper = document.getElementById('chat-messages-wrapper');
+                if (messagesWrapper) {
+                    messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+                }
+            }, 0);
+            
+            setupVoiceMessageHandlers();
+        } else {
+            messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
+        }
+    } catch (error) {
+        console.error('Error loading ZK chat history:', error);
+        document.getElementById('chat-messages').innerHTML = 
+            '<div class="error-message">Ошибка загрузки истории сообщений</div>';
+    }
+}
+
+
+
+
+
+
+
+
+async function sendZKMediaMessage(file, caption = '') {
+    if (!currentChatUserId || !userEncryptionKey) return;
+    
+    try {
+        const encryptedMediaData = await zkCrypto.encryptFile(file, userEncryptionKey);
+        const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+        
+        const result = await eel.send_media_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedMediaData,
+            fileType,
+            file.name
+        )();
+        
+        if (result.success) {
+            // Добавляем сообщение в чат
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
+                timestamp: result.timestamp,
+                read: result.read,
+                isMedia: true,
+                mediaType: fileType,
+                is_encrypted: true
+            };
+            
+            addMessageToChat(message, true, true);
+        }
+    } catch (error) {
+        console.error('Error sending ZK media message:', error);
+    }
+}
+
+async function sendZKVoiceMessage(audioBlob, duration) {
+    if (!currentChatUserId || !userEncryptionKey) return;
+    
+    try {
+        const encryptedVoiceData = await zkCrypto.encryptFile(audioBlob, userEncryptionKey);
+        
+        const result = await eel.send_voice_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedVoiceData,
+            duration
+        )();
+        
+        if (result.success) {
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: '[Голосовое сообщение]',
+                timestamp: result.timestamp,
+                read: result.read,
+                isVoiceMessage: true,
+                duration: duration,
+                is_encrypted: true
+            };
+            
+            // Сохраняем зашифрованные данные в кеш для своих сообщений
+            if (!activeChats[currentChatUserId]) {
+                activeChats[currentChatUserId] = {
+                    messages: '',
+                    lastMessageId: null,
+                    messagesData: []
+                };
+            }
+            
+            if (!activeChats[currentChatUserId].messagesData) {
+                activeChats[currentChatUserId].messagesData = [];
+            }
+            
+            activeChats[currentChatUserId].messagesData.push({
+                id: message.id,
+                voiceData: encryptedVoiceData, // Сохраняем зашифрованные данные
+                duration: duration,
+                isVoiceMessage: true,
+                listened: true
+            });
+            
+            addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем состояние чата
+            const messagesContainer = document.getElementById('chat-messages');
+            activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+            activeChats[currentChatUserId].lastMessageId = lastMessageId;
+            
+            // Обновляем последнее сообщение на карточке
+            updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
+            
+            // Устанавливаем обработчики для голосовых сообщений
+            setupVoiceMessageHandlers();
+        }
+    } catch (error) {
+        console.error('Error sending ZK voice message:', error);
+    }
+}
+
+async function initializeUserKey(password) {
+    try {
+        const user_id = localStorage.getItem('user_id');
+        if (!user_id) {
+            throw new Error('User ID not found');
+        }
+
+        // Получаем соль с сервера
+        const saltResponse = await eel.get_user_salt(user_id)();
+        if (!saltResponse.success) {
+            throw new Error('Не удалось получить соль пользователя');
+        }
+
+        // Сохраняем соль в localStorage
+        localStorage.setItem('user_salt', saltResponse.salt);
+        
+        // Сохраняем пароль в sessionStorage
+        sessionStorage.setItem('user_password', password);
+        
+        // Конвертируем соль
+        const saltBytes = Uint8Array.from(atob(saltResponse.salt), c => c.charCodeAt(0));
+        
+        // Генерируем ключ
+        userEncryptionKey = await zkCrypto.deriveKey(password, saltBytes);
+        
+        // Тестируем ключ
+        const testResult = await testEncryptionKey();
+        if (!testResult) {
+            throw new Error('Ключ не работает');
+        }
+
+        localStorage.setItem('zk_initialized', 'true');
+        console.log('ZK система инициализирована успешно');
+        return true;
+        
+    } catch (error) {
+        console.error('Error initializing user key:', error);
+        // Очищаем при ошибке
+        localStorage.removeItem('zk_initialized');
+        localStorage.removeItem('user_salt');
+        sessionStorage.removeItem('user_password');
+        userEncryptionKey = null;
+        return false;
+    }
+}
+
+
+
+
+// Функция для тестирования ключа
+async function testEncryptionKey() {
+    try {
+        // Создаем тестовое сообщение и пытаемся его зашифровать/расшифровать
+        const testText = "test message";
+        const encrypted = await zkCrypto.encryptText(testText, userEncryptionKey);
+        const decrypted = await zkCrypto.decryptText(encrypted, userEncryptionKey);
+        
+        return decrypted === testText;
+    } catch (error) {
+        console.error('Key test failed:', error);
+        return false;
+    }
+}
+
 
 
 

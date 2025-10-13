@@ -37,14 +37,22 @@
     <script src="/eel.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Убрали автоматическое перенаправление на index.html
-            
             const switchRegister = document.getElementById('switch-register');
             const switchLogin = document.getElementById('switch-login');
             const switchSlider = document.getElementById('switch-slider');
             const registerForm = document.getElementById('register-form');
             const loginForm = document.getElementById('login-form');
             const messageDiv = document.getElementById('message');
+            
+            function showMessage(text, type) {
+                messageDiv.textContent = text;
+                messageDiv.className = type;
+                messageDiv.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, 3000);
+            }
             
             function switchForm(formType) {
                 if (formType === 'register') {
@@ -69,6 +77,15 @@
             document.getElementById('register-btn').addEventListener('click', register);
             document.getElementById('login-btn').addEventListener('click', login);
             
+            // Добавляем обработчики для Enter
+            document.getElementById('reg-password').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') register();
+            });
+            
+            document.getElementById('login-password').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') login();
+            });
+            
             async function register() {
                 const nickname = document.getElementById('reg-nickname').value.trim();
                 const email = document.getElementById('reg-email').value.trim();
@@ -79,7 +96,13 @@
                     return;
                 }
                 
+                if (password.length < 6) {
+                    showMessage('Пароль должен содержать минимум 6 символов', 'error');
+                    return;
+                }
+                
                 try {
+                    showMessage('Регистрация...', 'success');
                     const response = await eel.register_user(nickname, email, password)();
                     showMessage(response.message, response.success ? 'success' : 'error');
                     
@@ -88,6 +111,7 @@
                         const loginResponse = await eel.login_user(email, password)();
                         if (loginResponse.success) {
                             localStorage.setItem('user_id', loginResponse.user_id);
+                            sessionStorage.setItem('user_password', password);
                             setTimeout(() => {
                                 window.location.href = 'index.html';
                             }, 1500);
@@ -109,10 +133,13 @@
                 }
                 
                 try {
+                    showMessage('Вход...', 'success');
                     const response = await eel.login_user(email, password)();
                     if (response.success) {
                         showMessage(`Добро пожаловать, ${response.nickname}!`, 'success');
                         localStorage.setItem('user_id', response.user_id);
+                        sessionStorage.setItem('user_password', password);
+                        
                         setTimeout(() => {
                             window.location.href = 'index.html';
                         }, 1000);
@@ -123,12 +150,6 @@
                     showMessage('Ошибка соединения с сервером', 'error');
                     console.error('Login error:', error);
                 }
-            }
-            
-            function showMessage(text, type) {
-                messageDiv.textContent = text;
-                messageDiv.className = type;
-                messageDiv.classList.remove('hidden');
             }
         });
     </script>
