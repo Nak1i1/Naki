@@ -96,8 +96,9 @@ import hashlib
 @eel.expose
 def register_user(nickname, email, password):
     try:
-        # Хешируем email для поиска дубликатов
-        email_hash = hashlib.sha256(email.lower().encode()).hexdigest()
+        # Нормализуем email к нижнему регистру перед хешированием
+        email_normalized = email.lower().strip()
+        email_hash = hashlib.sha256(email_normalized.encode()).hexdigest()
         
         if users_collection.find_one({"email_hash": email_hash}):
             return {"success": False, "message": "Пользователь с таким email уже существует"}
@@ -106,12 +107,12 @@ def register_user(nickname, email, password):
         salt = ZeroKnowledgeCrypto.generate_salt()
         user_key = ZeroKnowledgeCrypto.derive_key(password, salt)
 
-        # Шифруем данные пользователя
+        # Шифруем данные пользователя (используем оригинальный email для шифрования)
         encrypted_nickname = ZeroKnowledgeCrypto.encrypt_data(nickname, user_key)
-        encrypted_email = ZeroKnowledgeCrypto.encrypt_data(email, user_key)
+        encrypted_email = ZeroKnowledgeCrypto.encrypt_data(email, user_key)  # Сохраняем оригинальный регистр
 
         user_data = {
-            "email_hash": email_hash,  # Для поиска дубликатов
+            "email_hash": email_hash,  # Для поиска дубликатов (нижний регистр)
             "salt": base64.b64encode(salt).decode(),
             "encrypted_nickname": encrypted_nickname,
             "encrypted_email": encrypted_email,
@@ -132,22 +133,68 @@ def register_user(nickname, email, password):
     except Exception as e:
         logger.error(f"Ошибка регистрации: {e}")
         return {"success": False, "message": "Ошибка при регистрации"}
+    
+    
+@eel.expose
+def debug_get_all_users():
+    """Функция для отладки - получить всех пользователей"""
+    try:
+        users = list(users_collection.find({}, {
+            'email_hash': 1,
+            'created_at': 1,
+            '_id': 1
+        }))
+        return [{
+            'id': str(user['_id']),
+            'email_hash': user['email_hash'],
+            'created_at': user['created_at'].isoformat() if 'created_at' in user else 'N/A'
+        } for user in users]
+    except Exception as e:
+        logger.error(f"Ошибка получения пользователей: {e}")
+        return []
+@eel.expose
+def debug_check_email_hash(email):
+    """Отладочная функция для проверки хеша email"""
+    try:
+        email_normalized = email.lower().strip()
+        email_hash = hashlib.sha256(email_normalized.encode()).hexdigest()
+        
+        logger.info(f"DEBUG: Email: '{email}'")
+        logger.info(f"DEBUG: Normalized: '{email_normalized}'")
+        logger.info(f"DEBUG: Hash: {email_hash}")
+        
+        # Проверим, есть ли пользователь с таким хешем
+        user = users_collection.find_one({"email_hash": email_hash})
+        if user:
+            logger.info(f"DEBUG: User found: {user['_id']}")
+            return {"found": True, "hash": email_hash}
+        else:
+            # Посмотрим все существующие хеши
+            all_users = list(users_collection.find({}, {"email_hash": 1}))
+            existing_hashes = [u["email_hash"] for u in all_users]
+            logger.info(f"DEBUG: Existing hashes: {existing_hashes}")
+            return {"found": False, "hash": email_hash, "existing_hashes": existing_hashes}
+    except Exception as e:
+        logger.error(f"DEBUG Error: {e}")
+        return {"error": str(e)}    
 
 @eel.expose
 def login_user(email, password):
     try:
-        # Ищем по хешу email
-        email_hash = hashlib.sha256(email.lower().encode()).hexdigest()
+        # Нормализуем email к нижнему регистру перед хешированием
+        email_normalized = email.lower().strip()
+        email_hash = hashlib.sha256(email_normalized.encode()).hexdigest()
+        
+        logger.info(f"LOGIN ATTEMPT: Email: '{email}' -> Normalized: '{email_normalized}' -> Hash: {email_hash}")
+        
         user = users_collection.find_one({"email_hash": email_hash})
         
         if not user:
             return {"success": False, "message": "Пользователь не найден"}
 
-        # В ZK системе мы НЕ проверяем пароль путем дешифровки
-        # Вместо этого просто возвращаем успех и данные пользователя
-        # Фактическая проверка пароля происходит на клиенте при дешифровке сообщений
+        logger.info(f"USER FOUND: {user['_id']}")
         
-        # Получаем соль для клиента
+        # Остальной код остается без изменений...
         salt = base64.b64decode(user["salt"])
         
         # Расшифровываем никнейм для возврата (опционально)
@@ -157,8 +204,8 @@ def login_user(email, password):
                 user["encrypted_nickname"]["encrypted_data"], 
                 user_key
             )
-        except:
-            # Если не удалось расшифровать, используем fallback
+        except Exception as decrypt_error:
+            logger.warning(f"Не удалось расшифровать никнейм: {decrypt_error}")
             nickname = f"User {str(user['_id'])[:8]}"
 
         # Обновляем время последней активности
@@ -174,7 +221,7 @@ def login_user(email, password):
             "user_id": str(user["_id"]),
             "public_key": user.get("public_key", ""),
             "friends": [str(friend) for friend in user.get("friends", [])],
-            "salt": user["salt"]  # Возвращаем соль для клиента
+            "salt": user["salt"]  # Убедитесь, что соль возвращается
         }
     except Exception as e:
         logger.error(f"Ошибка входа: {e}")
