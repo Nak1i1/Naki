@@ -435,8 +435,12 @@ def get_chat_history(user1_id, user2_id):
         return []
 
 @eel.expose
-def send_media_message(sender_id, receiver_id, encrypted_media_data, media_type, filename):
+def send_media_message(sender_id, receiver_id, encrypted_media_data, media_type, filename, caption=None):
     try:
+        # Проверяем размер данных (увеличьте лимит если нужно)
+        if len(encrypted_media_data) > 20 * 1024 * 1024:  # 20MB
+            return {"success": False, "message": "File too large"}
+        
         sender = users_collection.find_one({"_id": ObjectId(sender_id)})
         receiver = users_collection.find_one({"_id": ObjectId(receiver_id)})
         
@@ -449,12 +453,20 @@ def send_media_message(sender_id, receiver_id, encrypted_media_data, media_type,
         # Сохраняем зашифрованные медиа данные в GridFS
         fs = gridfs.GridFS(db)
         file_data = base64.b64decode(encrypted_media_data)
+        
+        # Проверяем размер после декодирования
+        if len(file_data) > 15 * 1024 * 1024:  # 15MB
+            return {"success": False, "message": "File too large after decoding"}
+        
         file_id = fs.put(file_data, filename=filename, content_type=f"{media_type}/*")
+        
+        # Используем caption если он передан, иначе стандартный текст
+        message_text = caption if caption else f"[{media_type.capitalize()}]"
         
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
-            "encrypted_text": f"[{media_type.capitalize()}]",
+            "encrypted_text": encrypted_media_data,  # Сохраняем зашифрованные данные
             "timestamp": utc_time,
             "read": is_self_message,
             "is_media": True,
@@ -474,7 +486,7 @@ def send_media_message(sender_id, receiver_id, encrypted_media_data, media_type,
         }
     except Exception as e:
         logger.error(f"Error sending media message: {str(e)}")
-        return {"success": False, "message": "Error sending media message"}
+        return {"success": False, "message": f"Error sending media message: {str(e)}"}
 
 @eel.expose
 def get_media_message(message_id):

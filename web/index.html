@@ -287,44 +287,246 @@ document.addEventListener('click', function(e) {
         openImageModal(e.target.src);
     }
 });
+class ZKEncryption {
+    static async deriveKey(password, salt) {
+        const encoder = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw',
+            encoder.encode(password),
+            'PBKDF2',
+            false,
+            ['deriveKey']
+        );
 
-
-
-document.addEventListener('DOMContentLoaded', async function() {
-    const user_id = localStorage.getItem('user_id');
-    if (!user_id) {
-        window.location.href = 'login.html';
-        return;
+        return await crypto.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 100000,
+                hash: 'SHA-256'
+            },
+            keyMaterial,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
     }
 
-    // Улучшенная инициализация ZK системы
-    let keyInitialized = false;
+static async encryptText(text, key) {
+    try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(text);
+        
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        
+        const encrypted = await crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            data
+        );
+
+        const combined = new Uint8Array(iv.length + encrypted.byteLength);
+        combined.set(iv);
+        combined.set(new Uint8Array(encrypted), iv.length);
+
+        return this.arrayBufferToBase64(combined);
+    } catch (error) {
+        console.error('Error in encryptText:', error);
+        throw error;
+    }
+}
+
+    static async decryptText(encryptedData, key) {
+        try {
+            const combined = this.base64ToArrayBuffer(encryptedData);
+            
+            const iv = combined.slice(0, 12);
+            const data = combined.slice(12);
+            
+            const decrypted = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                key,
+                data
+            );
+
+            const decoder = new TextDecoder();
+            return decoder.decode(decrypted);
+        } catch (error) {
+            console.error('Decryption error:', error);
+            throw new Error('Failed to decrypt data');
+        }
+    }
+
+    static async encryptFile(file, key) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = async (event) => {
+                try {
+                    const arrayBuffer = event.target.result;
+                    
+                    // Проверка размера файла
+                    if (arrayBuffer.byteLength > 10 * 1024 * 1024) {
+                        reject(new Error('File too large (max 10MB)'));
+                        return;
+                    }
+                    
+                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    
+                    const encrypted = await crypto.subtle.encrypt(
+                        {
+                            name: 'AES-GCM',
+                            iv: iv
+                        },
+                        key,
+                        arrayBuffer
+                    );
+
+                    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+                    combined.set(iv);
+                    combined.set(new Uint8Array(encrypted), iv.length);
+                    
+                    const base64 = this.arrayBufferToBase64(combined);
+                    resolve(base64);
+                    
+                } catch (error) {
+                    console.error('Ошибка при шифровании файла:', error);
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Failed to read file'));
+            };
+            
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    static async decryptFile(encryptedData, key) {
+        try {
+            const combined = this.base64ToArrayBuffer(encryptedData);
+            
+            const iv = combined.slice(0, 12);
+            const data = combined.slice(12);
+            
+            const decrypted = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                key,
+                data
+            );
+
+            return decrypted;
+        } catch (error) {
+            console.error('Decryption error:', error);
+            throw new Error('Failed to decrypt data');
+        }
+    }
+
+    // Эффективные методы для конвертации base64
+    static arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    static base64ToArrayBuffer(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+    }
+}
+
+
+
+const zkCrypto = ZKEncryption;
+let userEncryptionKey = null;
+
+
+
+// Функции для отображения прогресса загрузки медиа
+function showMediaUploadProgress(text, progress) {
+    // Создаем или находим элемент для отображения прогресса
+    let progressElement = document.getElementById('media-upload-progress');
     
-    // Пробуем восстановить ключ если есть соль
-    const storedSalt = localStorage.getItem('user_salt');
-    if (storedSalt) {
-        keyInitialized = await restoreUserKey();
+    if (!progressElement) {
+        progressElement = document.createElement('div');
+        progressElement.id = 'media-upload-progress';
+        progressElement.className = 'media-upload-progress';
+        progressElement.innerHTML = `
+            <div class="media-upload-progress-content">
+                <div class="media-upload-progress-text">${text}</div>
+                <div class="media-upload-progress-bar">
+                    <div class="media-upload-progress-fill" style="width: ${progress}%"></div>
+                </div>
+                <div class="media-upload-progress-percent">${Math.round(progress)}%</div>
+            </div>
+        `;
+        document.body.appendChild(progressElement);
+    } else {
+        progressElement.querySelector('.media-upload-progress-text').textContent = text;
+        progressElement.querySelector('.media-upload-progress-fill').style.width = `${progress}%`;
+        progressElement.querySelector('.media-upload-progress-percent').textContent = `${Math.round(progress)}%`;
     }
     
-    // Если не удалось восстановить, запрашиваем пароль
-    if (!keyInitialized) {
-        const userPassword = prompt("Введите ваш пароль для расшифровки сообщений:");
-        if (!userPassword) {
-            alert("Пароль обязателен для работы мессенджера");
+    progressElement.style.display = 'block';
+}
+
+function updateMediaUploadProgress(text, progress) {
+    const progressElement = document.getElementById('media-upload-progress');
+    if (progressElement) {
+        progressElement.querySelector('.media-upload-progress-text').textContent = text;
+        progressElement.querySelector('.media-upload-progress-fill').style.width = `${progress}%`;
+        progressElement.querySelector('.media-upload-progress-percent').textContent = `${Math.round(progress)}%`;
+    }
+}
+
+function hideMediaUploadProgress() {
+    const progressElement = document.getElementById('media-upload-progress');
+    if (progressElement) {
+        progressElement.style.display = 'none';
+        // Удаляем элемент через некоторое время
+        setTimeout(() => {
+            if (progressElement && progressElement.parentNode) {
+                progressElement.parentNode.removeChild(progressElement);
+            }
+        }, 1000);
+    }
+}
+  document.addEventListener('DOMContentLoaded', async function() {
+        const user_id = localStorage.getItem('user_id');
+        if (!user_id) {
             window.location.href = 'login.html';
             return;
         }
-        
-        keyInitialized = await initializeUserKey(userPassword);
-        if (!keyInitialized) {
+
+        // Инициализируем ZK систему
+        const zkInitialized = await initializeZKSystem();
+        if (!zkInitialized) {
             alert("Ошибка инициализации системы безопасности");
             return;
         }
-    }
 
-    // Продолжаем остальную инициализацию...
-    initCustomScroll();
-    initImageModal();
+        // Продолжаем остальную инициализацию...
+        initCustomScroll();
+        initImageModal();
 
     // Добавляем обработчик перед выгрузкой страницы
     window.addEventListener('beforeunload', function() {
@@ -843,13 +1045,16 @@ async function restoreUserKey() {
 
 async function loadZKVideoMessage(messageId) {
     try {
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) return;
+        
+        // Показываем индикатор загрузки
+        loadingElement.innerHTML = '<div class="video-load-spinner">Загрузка...</div>';
+        
         const response = await eel.get_media_message(messageId)();
         if (response.success && userEncryptionKey) {
-            const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
-            const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
-            
-            if (!videoElement || !loadingElement) return;
-            
             // Расшифровываем видео
             const decryptedData = await zkCrypto.decryptFile(response.encrypted_media_data, userEncryptionKey);
             const blob = new Blob([decryptedData], { type: 'video/mp4' });
@@ -857,12 +1062,24 @@ async function loadZKVideoMessage(messageId) {
             
             loadingElement.classList.add('hidden');
             videoElement.classList.remove('hidden');
+        } else {
+            throw new Error('Failed to load video');
         }
     } catch (error) {
         console.error('Ошибка загрузки ZK видео:', error);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">Ошибка загрузки</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadZKVideoMessage(messageId);
+            });
+        }
     }
 }
-
 
 
 async function checkAndRestoreReplyState() {
@@ -1518,7 +1735,6 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
     if (!dateHeaders.has(dateKey)) {
         const dateHeader = createDateHeader(dateText, dateKey);
         
-        // Безопасная вставка заголовка
         try {
             messagesContainer.appendChild(dateHeader);
             dateHeaders.set(dateKey, dateHeader);
@@ -1540,80 +1756,28 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
             img.alt = 'Фото';
             img.loading = 'lazy';
 
-            // Проверяем, есть ли данные в кеше активного чата
-            let mediaDataFromCache = null;
-            if (activeChats[currentChatUserId]?.messagesData) {
-                const cachedMessage = activeChats[currentChatUserId].messagesData.find(m => m.id === message.id);
-                if (cachedMessage && cachedMessage.mediaData) {
-                    mediaDataFromCache = cachedMessage.mediaData;
-                }
-            }
-            
-            if (mediaDataFromCache) {
-                // Используем данные из кеша
-                img.src = `data:image/jpeg;base64,${mediaDataFromCache}`;
-                mediaContainer.appendChild(img);
-            } else if (message.mediaData) {
-                // Используем данные из сообщения (если они есть)
-                img.src = `data:image/jpeg;base64,${message.mediaData}`;
-                mediaContainer.appendChild(img);
-                
-                // Сохраняем в кеш активного чата
-                if (activeChats[currentChatUserId] && !activeChats[currentChatUserId].messagesData) {
-                    activeChats[currentChatUserId].messagesData = [];
-                }
-                
-                const existingIndex = activeChats[currentChatUserId]?.messagesData?.findIndex(m => m.id === message.id) || -1;
-                if (existingIndex !== -1) {
-                    activeChats[currentChatUserId].messagesData[existingIndex].mediaData = message.mediaData;
+            // Для изображений загружаем и расшифровываем данные
+            const loadingElement = document.createElement('div');
+            loadingElement.className = 'media-loading';
+            loadingElement.textContent = 'Загрузка...';
+            mediaContainer.appendChild(loadingElement);
+
+            try {
+                const response = await eel.get_media_message(message.id)();
+                if (response.success && userEncryptionKey) {
+                    const decryptedData = await zkCrypto.decryptFile(response.encrypted_media_data, userEncryptionKey);
+                    const blob = new Blob([decryptedData], { type: 'image/jpeg' });
+                    img.src = URL.createObjectURL(blob);
+                    
+                    loadingElement.remove();
+                    mediaContainer.appendChild(img);
                 } else {
-                    activeChats[currentChatUserId].messagesData.push({
-                        id: message.id,
-                        isMedia: true,
-                        mediaType: 'image',
-                        mediaData: message.mediaData,
-                        text: message.text
-                    });
+                    throw new Error('Failed to load image');
                 }
-            } else {
-                // Загружаем с сервера
-                const loadingElement = document.createElement('div');
-                loadingElement.className = 'media-loading';
-                loadingElement.textContent = 'Загрузка...';
-                mediaContainer.appendChild(loadingElement);
-                
-                try {
-                    const response = await eel.get_media_message(message.id)();
-                    if (response.success) {
-                        img.src = `data:image/jpeg;base64,${response.media_data}`;
-                        loadingElement.remove();
-                        mediaContainer.appendChild(img);
-                        
-                        // Сохраняем в кеш активного чата
-                        if (activeChats[currentChatUserId] && !activeChats[currentChatUserId].messagesData) {
-                            activeChats[currentChatUserId].messagesData = [];
-                        }
-                        
-                        const existingIndex = activeChats[currentChatUserId]?.messagesData?.findIndex(m => m.id === message.id) || -1;
-                        if (existingIndex !== -1) {
-                            activeChats[currentChatUserId].messagesData[existingIndex].mediaData = response.media_data;
-                        } else {
-                            activeChats[currentChatUserId].messagesData.push({
-                                id: message.id,
-                                isMedia: true,
-                                mediaType: 'image',
-                                mediaData: response.media_data,
-                                text: message.text
-                            });
-                        }
-                    } else {
-                        throw new Error(response.message || 'Failed to get image data');
-                    }
-                } catch (error) {
-                    console.error('Error loading image:', error);
-                    loadingElement.textContent = 'Ошибка загрузки';
-                    loadingElement.classList.add('error');
-                }
+            } catch (error) {
+                console.error('Error loading image:', error);
+                loadingElement.textContent = 'Ошибка загрузки';
+                loadingElement.classList.add('error');
             }
         } else if (mediaType === 'video') {
             // Обработка видео
@@ -1648,8 +1812,7 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
         }
         
         messageElement.appendChild(mediaContainer);
-
-    } else if (message.isVoiceMessage || message.is_voice) {
+    }else if (message.isVoiceMessage || message.is_voice) {
         // Голосовое сообщение
         const voiceMessage = createVoiceMessageElement(message);
         messageElement.appendChild(voiceMessage);
@@ -3173,7 +3336,23 @@ function openFileSelector() {
 
 function handleFileSelect(e) {
     const files = Array.from(e.target.files);
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB
     
+    // Проверяем размер отдельных файлов
+    const oversizedFiles = files.filter(file => file.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+        alert(`Следующие файлы превышают максимальный размер 10MB: ${oversizedFiles.map(f => f.name).join(', ')}`);
+        return;
+    }
+    
+    // Проверяем общий размер
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > MAX_TOTAL_SIZE) {
+        alert(`Общий размер файлов превышает ${MAX_TOTAL_SIZE / 1024 / 1024}MB`);
+        return;
+    }
+
     // Проверяем общее количество файлов
     if (selectedFiles.length + files.length > MAX_FILES) {
         alert(`Можно добавить не более ${MAX_FILES} файлов. У вас уже ${selectedFiles.length} файлов.`);
@@ -3206,6 +3385,7 @@ function handleFileSelect(e) {
     // Сбрасываем значение input, чтобы можно было выбрать те же файлы снова
     e.target.value = '';
 }
+
 
 function isFileDuplicate(newFile, existingFiles) {
     return existingFiles.some(existingFile => 
@@ -3327,115 +3507,200 @@ async function sendAllMedia() {
         return;
     }
     
-    const caption = mediaCaptionInput.value.trim();
+    const caption = document.getElementById('media-caption-input').value.trim();
     
     try {
         // Показываем индикатор загрузки
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'loading-indicator';
-        loadingIndicator.textContent = `Отправка ${selectedFiles.length} файлов...`;
-        mediaSendModal.appendChild(loadingIndicator);
-        mediaSendButton.disabled = true;
+        showMediaUploadProgress(`Подготовка ${selectedFiles.length} файлов...`, 0);
         
-        // Отправляем файлы по очереди
+        let successCount = 0;
+        let failedFiles = [];
+        
+        // Отправляем файлы последовательно с ограничением
         for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
-           await sendZKMediaMessage(file, i === 0 ? caption : '');
+            
+            // Проверяем размер файла перед отправкой
+            if (file.size > 5 * 1024 * 1024) { // 5MB предупреждение
+                if (!confirm(`Файл "${file.name}" довольно большой (${(file.size / 1024 / 1024).toFixed(1)}MB). Продолжить отправку?`)) {
+                    failedFiles.push({file: file.name, reason: 'Пользователь отменил'});
+                    continue;
+                }
+            }
+            
+            // Передаем caption только для первого файла
+            const fileCaption = (i === 0 && caption) ? caption : '';
+            
+            console.log(`Отправка файла ${i + 1}/${selectedFiles.length}:`, file.name);
+            
+            // Обновляем прогресс
+            updateMediaUploadProgress(`Отправка: ${file.name} (${i + 1}/${selectedFiles.length})`, 
+                (i / selectedFiles.length) * 100);
+            
+            try {
+                const success = await sendZKMediaMessage(file, fileCaption);
+                if (success) {
+                    successCount++;
+                } else {
+                    failedFiles.push({file: file.name, reason: 'Ошибка отправки'});
+                }
+            } catch (error) {
+                console.error(`Ошибка отправки файла ${file.name}:`, error);
+                failedFiles.push({file: file.name, reason: error.message});
+            }
+            
+            // Задержка между отправками для уменьшения нагрузки
+            if (i < selectedFiles.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
         }
         
-        closeMediaModal();
+        hideMediaUploadProgress();
+        
+        // Показываем результаты отправки
+        if (successCount > 0) {
+            if (successCount === selectedFiles.length) {
+                alert(`✅ Все ${successCount} файлов успешно отправлены`);
+            } else {
+                let message = `✅ Отправлено ${successCount} из ${selectedFiles.length} файлов`;
+                if (failedFiles.length > 0) {
+                    message += `\n❌ Не отправлено: ${failedFiles.map(f => f.file).join(', ')}`;
+                }
+                alert(message);
+            }
+            closeMediaModal(); // ВАЖНО: закрываем модальное окно при успехе
+        } else {
+            let errorMessage = '❌ Не удалось отправить ни один файл';
+            if (failedFiles.length > 0) {
+                errorMessage += `\nПричины: ${failedFiles.map(f => `${f.file} (${f.reason})`).join(', ')}`;
+            }
+            alert(errorMessage);
+            // Не закрываем модальное окно при ошибке, чтобы пользователь мог попробовать снова
+        }
         
     } catch (error) {
         console.error('Ошибка отправки файлов:', error);
-        alert('Ошибка при отправке файлов');
-    } finally {
-        document.querySelector('.loading-indicator')?.remove();
-        mediaSendButton.disabled = false;
+        hideMediaUploadProgress();
+        alert('Критическая ошибка при отправке файлов: ' + error.message);
     }
 }
 
-async function sendSingleMediaFile(file, caption, currentIndex, totalCount) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const fileData = event.target.result.split(',')[1];
-            const fileType = file.type.startsWith('video/') ? 'video' : 'image';
-            
-            try {
-                // Обновляем индикатор прогресса
-                const loadingIndicator = document.querySelector('.loading-indicator');
-                if (loadingIndicator) {
-                    loadingIndicator.textContent = `Отправка файла ${currentIndex}/${totalCount}: ${file.name}`;
-                }
-                
-                const result = await eel.send_media_message(
-                    localStorage.getItem('user_id'),
-                    currentChatUserId,
-                    fileData,
-                    fileType,
-                    file.name,
-                    currentIndex === 1 ? caption : '' // Добавляем подпись только к первому файлу
-                )();
-                
-                if (result.success) {
-                    const message = {
-                        id: result.message_id,
-                        sender_id: localStorage.getItem('user_id'),
-                        receiver_id: currentChatUserId,
-                        text: caption && currentIndex === 1 ? caption : (fileType === 'video' ? '[Видео]' : '[Фото]'),
-                        timestamp: result.timestamp,
-                        read: result.read,
-                        isMedia: true,
-                        mediaType: fileType,
-                        mediaData: fileData,
-                        filename: file.name
-                    };
-                    
-                    addMessageToChat(message, true, true);
-                    lastMessageId = message.id;
-                    
-                    // Обновляем кеш активного чата
-                    if (activeChats[currentChatUserId]) {
-                        const messagesContainer = document.getElementById('chat-messages');
-                        activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
-                        activeChats[currentChatUserId].lastMessageId = lastMessageId;
-                        
-                        if (!activeChats[currentChatUserId].messagesData) {
-                            activeChats[currentChatUserId].messagesData = [];
-                        }
-                        
-                        activeChats[currentChatUserId].messagesData.push({
-                            id: message.id,
-                            isMedia: true,
-                            mediaType: fileType,
-                            mediaData: fileData,
-                            text: message.text,
-                            filename: file.name
-                        });
-                    }
-                    
-                    // Обновляем последнее сообщение на карточке (только для первого файла)
-                    if (currentIndex === 1) {
-                        updateLastMessageOnUserCard(
-                            currentChatUserId, 
-                            selectedFiles.length > 1 ? `${selectedFiles.length} медиа` : (fileType === 'video' ? 'Видео' : 'Фото'), 
-                            true
-                        );
-                    }
-                    
-                    resolve();
-                } else {
-                    reject(new Error(`Ошибка при отправке файла ${file.name}: ${result.message}`));
-                }
-            } catch (error) {
-                reject(error);
-            }
-        };
+async function sendZKMediaMessage(file, caption = '') {
+    if (!currentChatUserId || !userEncryptionKey) {
+        throw new Error('Система безопасности не инициализирована');
+    }
+    
+    try {
+        // Показываем индикатор загрузки
+        showMediaUploadProgress(`Шифрование: ${file.name}`, 10);
         
-        reader.onerror = () => reject(new Error(`Ошибка чтения файла ${file.name}`));
-        reader.readAsDataURL(file);
-    });
-}
+        // Ограничиваем размер файла
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        if (file.size > MAX_FILE_SIZE) {
+            hideMediaUploadProgress();
+            alert(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+            return false;
+        }
+        
+        console.log('Начало шифрования файла:', file.name, 'размер:', file.size);
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Шифрование: ${file.name}`, 30);
+        
+        // Шифруем файл с обработкой ошибок
+        let encryptedMediaData;
+        try {
+            encryptedMediaData = await zkCrypto.encryptFile(file, userEncryptionKey);
+        } catch (encryptError) {
+            console.error('Ошибка шифрования:', encryptError);
+            throw new Error(`Ошибка шифрования файла: ${encryptError.message}`);
+        }
+        
+        console.log('Файл зашифрован, отправка на сервер...');
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Отправка: ${file.name}`, 70);
+        
+        const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+        
+        const result = await eel.send_media_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedMediaData,
+            fileType,
+            file.name,
+            caption
+        )();
+        
+        if (result.success) {
+            console.log('Файл успешно отправлен');
+            
+            // Добавляем сообщение в чат
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
+                timestamp: result.timestamp,
+                read: result.read,
+                isMedia: true,
+                mediaType: fileType,
+                is_encrypted: true
+            };
+            
+            await addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем кеш активного чата
+            if (activeChats[currentChatUserId]) {
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                
+                if (!activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
+                activeChats[currentChatUserId].messagesData.push({
+                    id: message.id,
+                    isMedia: true,
+                    mediaType: fileType,
+                    text: message.text,
+                    filename: file.name
+                });
+            }
+            
+            // Обновляем последнее сообщение на карточке (только для первого файла)
+            if (selectedFiles.length > 0 && file === selectedFiles[0]) {
+                updateLastMessageOnUserCard(
+                    currentChatUserId, 
+                    selectedFiles.length > 1 ? `${selectedFiles.length} медиа` : (fileType === 'video' ? 'Видео' : 'Фото'), 
+                    true
+                );
+            }
+            
+            // Обновляем прогресс до 100% и скрываем
+            updateMediaUploadProgress(file.name, 100);
+            setTimeout(hideMediaUploadProgress, 1000);
+            
+            return true;
+        } else {
+            throw new Error(result.message || 'Ошибка при отправке файла');
+        }
+    } catch (error) {
+        console.error('Error sending ZK media message:', error);
+        hideMediaUploadProgress();
+        
+        if (error.message && error.message.includes('File too large')) {
+            alert('Файл слишком большой. Максимальный размер: 10MB');
+        } else if (error.message.includes('Maximum call stack')) {
+            alert('Файл слишком большой для обработки. Попробуйте файл меньшего размера.');
+        } else {
+            alert('Ошибка при отправке файла: ' + (error.message || 'Неизвестная ошибка'));
+        }
+        return false;
+    }
+}   
 
 
 
@@ -3444,17 +3709,31 @@ mediaCancelButton.addEventListener('click', closeMediaModal);
 mediaSendOverlay.addEventListener('click', closeMediaModal);
 
 function closeMediaModal() {
-    mediaSendOverlay.classList.add('hidden');
-    mediaSendModal.classList.add('hidden');
+    const mediaSendOverlay = document.getElementById('media-send-overlay');
+    const mediaSendModal = document.getElementById('media-send-modal');
+    
+    if (mediaSendOverlay) mediaSendOverlay.classList.add('hidden');
+    if (mediaSendModal) mediaSendModal.classList.add('hidden');
     
     // Очищаем выбранные файлы
     selectedFiles = [];
-    mediaCaptionInput.value = '';
+    const mediaCaptionInput = document.getElementById('media-caption-input');
+    if (mediaCaptionInput) mediaCaptionInput.value = '';
     
     // Сбрасываем input file
     const fileInput = document.getElementById('file-input');
-    fileInput.value = '';
-    fileInput.removeAttribute('multiple');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.removeAttribute('multiple');
+    }
+    
+    // Очищаем превью
+    const previewGrid = document.getElementById('media-preview-grid');
+    if (previewGrid) previewGrid.innerHTML = '';
+    
+    // Сбрасываем заголовок
+    const title = document.getElementById('media-send-title');
+    if (title) title.textContent = 'Отправить медиа';
 }
 
 
@@ -3644,156 +3923,196 @@ window.addEventListener('resize', positionPhotoMenu);
 
 
 
+    const KEY_STORAGE_KEY = 'user_encryption_key';
+    const KEY_EXPIRY_TIME = 24 * 60 * 60 * 1000; // 24 часа
 
-
-
-
-
-
-
-// Zero-Knowledge Encryption Module
-class ZKEncryption {
-    constructor() {
-        this.userKey = null;
-        this.salt = null;
-    }
-
-    async deriveKey(password, salt) {
-        const encoder = new TextEncoder();
-        const keyMaterial = await window.crypto.subtle.importKey(
-            'raw',
-            encoder.encode(password),
-            'PBKDF2',
-            false,
-            ['deriveBits', 'deriveKey']
-        );
-
-        const key = await window.crypto.subtle.deriveKey(
-            {
-                name: 'PBKDF2',
-                salt: salt,
-                iterations: 100000,
-                hash: 'SHA-256'
-            },
-            keyMaterial,
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['encrypt', 'decrypt']
-        );
-
-        return key;
-    }
-
-    async generateSalt() {
-        return window.crypto.getRandomValues(new Uint8Array(16));
-    }
-
-    async encryptText(text, key) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(text);
-        
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        
-        const encrypted = await window.crypto.subtle.encrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
-            key,
-            data
-        );
-
-        const combined = new Uint8Array(iv.length + encrypted.byteLength);
-        combined.set(iv);
-        combined.set(new Uint8Array(encrypted), iv.length);
-
-        return btoa(String.fromCharCode(...combined));
-    }
-
-    async decryptText(encryptedData, key) {
-        try {
-            const combined = new Uint8Array(atob(encryptedData).split('').map(char => char.charCodeAt(0)));
-            
-            const iv = combined.slice(0, 12);
-            const data = combined.slice(12);
-            
-            const decrypted = await window.crypto.subtle.decrypt(
-                {
-                    name: 'AES-GCM',
-                    iv: iv
-                },
-                key,
-                data
-            );
-
-            const decoder = new TextDecoder();
-            return decoder.decode(decrypted);
-        } catch (error) {
-            console.error('Decryption error:', error);
-            throw new Error('Failed to decrypt data');
+async function initializeZKSystem() {
+    try {
+        const user_id = localStorage.getItem('user_id');
+        if (!user_id) {
+            console.log('User ID not found in localStorage');
+            return false;
         }
-    }
 
-    async encryptFile(file, key) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = async () => {
-                try {
-                    const arrayBuffer = reader.result;
-                    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-                    
-                    const encrypted = await window.crypto.subtle.encrypt(
-                        {
-                            name: 'AES-GCM',
-                            iv: iv
-                        },
-                        key,
-                        arrayBuffer
-                    );
+        // Получаем пароль из sessionStorage
+        let userPassword = sessionStorage.getItem('user_password');
+        if (!userPassword) {
+            console.log('Password not found in sessionStorage');
+            return false;
+        }
 
-                    const combined = new Uint8Array(iv.length + encrypted.byteLength);
-                    combined.set(iv);
-                    combined.set(new Uint8Array(encrypted), iv.length);
+        // Получаем соль из localStorage
+        const storedSalt = localStorage.getItem('user_salt');
+        if (!storedSalt) {
+            console.log('Salt not found in localStorage');
+            return false;
+        }
 
-                    resolve(btoa(String.fromCharCode(...combined)));
-                } catch (error) {
-                    reject(error);
-                }
-            };
-            reader.onerror = reject;
-            reader.readAsArrayBuffer(file);
-        });
-    }
+        console.log('Password length:', userPassword.length);
+        console.log('Salt (base64):', storedSalt);
 
-    async decryptFile(encryptedData, key) {
-        const combined = new Uint8Array(atob(encryptedData).split('').map(char => char.charCodeAt(0)));
+        // Конвертируем соль из base64
+        const saltBytes = Uint8Array.from(atob(storedSalt), c => c.charCodeAt(0));
+        console.log('Salt bytes length:', saltBytes.length);
         
-        const iv = combined.slice(0, 12);
-        const data = combined.slice(12);
+        // Генерируем ключ из пароля и соли
+        console.log('Generating encryption key...');
+        userEncryptionKey = await ZKEncryption.deriveKey(userPassword, saltBytes);
+        console.log('Encryption key generated successfully');
         
-        const decrypted = await window.crypto.subtle.decrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
-            key,
-            data
-        );
+        // Тестируем ключ
+        console.log('Testing encryption key...');
+        const testResult = await testEncryptionKey();
+        if (!testResult) {
+            console.error('Encryption key test failed');
+            return false;
+        }
 
-        return decrypted;
+        console.log('ZK система инициализирована успешно');
+        return true;
+        
+    } catch (error) {
+        console.error('Error initializing ZK system:', error);
+        return false;
     }
 }
 
-// Инициализация ZK системы
-const zkCrypto = new ZKEncryption();
-let userEncryptionKey = null;
+
+
+async function testEncryptionKey() {
+    try {
+        const testText = "test message";
+        console.log('Testing encryption key with text:', testText);
+        
+        // Шифруем тестовое сообщение - используем ZKEncryption, а не zkCrypto
+        const encrypted = await ZKEncryption.encryptText(testText, userEncryptionKey);
+        console.log('Text encrypted successfully');
+        
+        // Дешифруем обратно
+        const decrypted = await ZKEncryption.decryptText(encrypted, userEncryptionKey);
+        console.log('Text decrypted successfully:', decrypted);
+        
+        const result = decrypted === testText;
+        console.log('Key test result:', result);
+        
+        return result;
+    } catch (error) {
+        console.error('Key test failed:', error);
+        return false;
+    }
+}
+
+    async function requestPasswordAndInitialize() {
+        try {
+            const userPassword = prompt("Введите ваш пароль для расшифровки сообщений:");
+            if (!userPassword) {
+                alert("Пароль обязателен для работы мессенджера");
+                return false;
+            }
+            
+            const success = await initializeUserKey(userPassword);
+            if (success) {
+                // Сохраняем ключ в localStorage
+                await saveEncryptionKey();
+                return true;
+            }
+            return false;
+            
+        } catch (error) {
+            console.error('Error in password initialization:', error);
+            return false;
+        }
+    }
+
+    async function saveEncryptionKey() {
+        try {
+            if (!userEncryptionKey) return false;
+            
+            // Экспортируем ключ в raw формат
+            const exportedKey = await crypto.subtle.exportKey('raw', userEncryptionKey);
+            const keyBytes = new Uint8Array(exportedKey);
+            const keyBase64 = btoa(String.fromCharCode(...keyBytes));
+            
+            const keyData = {
+                userId: localStorage.getItem('user_id'),
+                key: keyBase64,
+                timestamp: Date.now()
+            };
+            
+            localStorage.setItem(KEY_STORAGE_KEY, JSON.stringify(keyData));
+            return true;
+            
+        } catch (error) {
+            console.error('Error saving encryption key:', error);
+            return false;
+        }
+    }
+
+    async function initializeUserKey(password) {
+        try {
+            const user_id = localStorage.getItem('user_id');
+            if (!user_id) {
+                throw new Error('User ID not found');
+            }
+
+            // Получаем соль с сервера
+            const saltResponse = await eel.get_user_salt(user_id)();
+            if (!saltResponse.success) {
+                throw new Error('Не удалось получить соль пользователя');
+            }
+
+            // Конвертируем соль
+            const saltBytes = Uint8Array.from(atob(saltResponse.salt), c => c.charCodeAt(0));
+            
+            // Генерируем ключ с помощью Web Crypto API
+            const encoder = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                encoder.encode(password),
+                'PBKDF2',
+                false,
+                ['deriveKey']
+            );
+
+            userEncryptionKey = await crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: saltBytes,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+
+            // Тестируем ключ
+            const testResult = await testEncryptionKey();
+            if (!testResult) {
+                throw new Error('Ключ не прошел проверку');
+            }
+
+            console.log('ZK система инициализирована успешно');
+            return true;
+            
+        } catch (error) {
+            console.error('Error initializing user key:', error);
+            userEncryptionKey = null;
+            return false;
+        }
+    }
+
+
+
+
 
 async function sendZKMessage(text) {
     if (!currentChatUserId || !text || !userEncryptionKey) return;
     
     try {
-        // Шифруем сообщение
-        const encryptedText = await zkCrypto.encryptText(text, userEncryptionKey);
+        // Шифруем сообщение - используем ZKEncryption
+        const encryptedText = await ZKEncryption.encryptText(text, userEncryptionKey);
         
         const result = await eel.send_message(
             localStorage.getItem('user_id'),
@@ -3842,28 +4161,42 @@ async function loadZKChatHistory(userId) {
         }
 
         if (messages && Array.isArray(messages) && messages.length > 0) {
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
             let currentDateKey = null;
-            let decryptionErrors = 0;
-            let totalEncryptedMessages = 0;
             
             for (const msg of messages) {
                 let displayText = msg.text || '[Сообщение]';
+                let isEncrypted = false;
                 
-                // Обрабатываем только зашифрованные сообщения
+                // Обрабатываем зашифрованные сообщения
                 if (msg.is_encrypted && msg.encrypted_text && userEncryptionKey) {
-                    totalEncryptedMessages++;
+                    isEncrypted = true;
                     try {
-                        const decryptedText = await zkCrypto.decryptText(msg.encrypted_text, userEncryptionKey);
-                        displayText = decryptedText;
+                        // Пропускаем слишком длинные зашифрованные тексты (вероятно бинарные данные медиа)
+                        if (msg.encrypted_text.length > 100000) {
+                            if (msg.is_media) {
+                                displayText = msg.media_type === 'video' ? '[Видео]' : '[Фото]';
+                            } else if (msg.is_voice) {
+                                displayText = '[Голосовое сообщение]';
+                            } else {
+                                displayText = '[Зашифрованное сообщение]';
+                            }
+                        } else {
+                            const decryptedText = await zkCrypto.decryptText(msg.encrypted_text, userEncryptionKey);
+                            displayText = decryptedText;
+                        }
                     } catch (error) {
                         console.error('Failed to decrypt message:', error);
-                        displayText = '[Не удалось расшифровать]';
-                        decryptionErrors++;
+                        // Для медиафайлов показываем специальный текст
+                        if (msg.is_media) {
+                            displayText = msg.media_type === 'video' ? '[Видео]' : '[Фото]';
+                        } else if (msg.is_voice) {
+                            displayText = '[Голосовое сообщение]';
+                        } else {
+                            displayText = '[Не удалось расшифровать]';
+                        }
                     }
-                }
-                // Для незашифрованных сообщений используем обычный текст
-                else if (msg.text) {
-                    displayText = msg.text;
                 }
                 
                 const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
@@ -3873,26 +4206,44 @@ async function loadZKChatHistory(userId) {
                     isMedia: msg.is_media,
                     isVoiceMessage: msg.is_voice,
                     mediaType: msg.media_type,
-                    duration: msg.duration
+                    duration: msg.duration,
+                    is_encrypted: isEncrypted
                 };
+                
+                // Проверяем, нужно ли добавить заголовок даты
+                const messageDate = new Date(msg.timestamp);
+                const messageDateKey = messageDate.toDateString();
+                
+                if (messageDateKey !== currentDateKey) {
+                    const dateText = formatMessageDate(msg.timestamp);
+                    const dateHeader = createDateHeader(dateText, messageDateKey);
+                    messagesContainer.appendChild(dateHeader);
+                    dateHeaders.set(messageDateKey, dateHeader);
+                    currentDateKey = messageDateKey;
+                }
                 
                 await addMessageToChat(messageWithText, isMyMessage, false);
             }
             
-            console.log(`Расшифровано: ${totalEncryptedMessages - decryptionErrors}/${totalEncryptedMessages}, ошибок: ${decryptionErrors}`);
+            lastMessageId = messages[messages.length - 1].id;
             
-            // Показываем предупреждение только если есть зашифрованные сообщения и большинство не расшифровывается
-            if (totalEncryptedMessages > 0 && decryptionErrors > totalEncryptedMessages * 0.3) {
-                console.warn(`Много ошибок дешифрования: ${decryptionErrors} из ${totalEncryptedMessages}`);
-                if (confirm('Обнаружены проблемы с расшифровкой сообщений. Перезайти в систему?')) {
-                    localStorage.removeItem('zk_initialized');
-                    localStorage.removeItem('user_salt');
-                    sessionStorage.removeItem('user_password');
-                    userEncryptionKey = null;
-                    window.location.reload();
-                    return;
-                }
-            }
+            // Сохраняем состояние чата
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: lastMessageId,
+                messagesData: messages.map(msg => ({
+                    id: msg.id,
+                    text: msg.text,
+                    sender_id: msg.sender_id,
+                    timestamp: msg.timestamp,
+                    isMedia: msg.is_media,
+                    isVoiceMessage: msg.is_voice,
+                    mediaType: msg.media_type,
+                    duration: msg.duration,
+                    is_encrypted: msg.is_encrypted,
+                    encrypted_text: msg.encrypted_text
+                }))
+            };
             
             setTimeout(() => {
                 initDateHeadersSystem();
@@ -3907,6 +4258,12 @@ async function loadZKChatHistory(userId) {
             setupVoiceMessageHandlers();
         } else {
             messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
+            lastMessageId = null;
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: null,
+                messagesData: []
+            };
         }
     } catch (error) {
         console.error('Error loading ZK chat history:', error);
@@ -3923,10 +4280,41 @@ async function loadZKChatHistory(userId) {
 
 
 async function sendZKMediaMessage(file, caption = '') {
-    if (!currentChatUserId || !userEncryptionKey) return;
+    if (!currentChatUserId || !userEncryptionKey) {
+        throw new Error('Система безопасности не инициализирована');
+    }
     
     try {
-        const encryptedMediaData = await zkCrypto.encryptFile(file, userEncryptionKey);
+        // Показываем индикатор загрузки
+        showMediaUploadProgress(`Шифрование: ${file.name}`, 10);
+        
+        // Ограничиваем размер файла
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        if (file.size > MAX_FILE_SIZE) {
+            hideMediaUploadProgress();
+            alert(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+            return false;
+        }
+        
+        console.log('Начало шифрования файла:', file.name, 'размер:', file.size);
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Шифрование: ${file.name}`, 30);
+        
+        // Шифруем файл с обработкой ошибок
+        let encryptedMediaData;
+        try {
+            encryptedMediaData = await zkCrypto.encryptFile(file, userEncryptionKey);
+        } catch (encryptError) {
+            console.error('Ошибка шифрования:', encryptError);
+            throw new Error(`Ошибка шифрования файла: ${encryptError.message}`);
+        }
+        
+        console.log('Файл зашифрован, отправка на сервер...');
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Отправка: ${file.name}`, 70);
+        
         const fileType = file.type.startsWith('video/') ? 'video' : 'image';
         
         const result = await eel.send_media_message(
@@ -3934,10 +4322,13 @@ async function sendZKMediaMessage(file, caption = '') {
             currentChatUserId,
             encryptedMediaData,
             fileType,
-            file.name
+            file.name,
+            caption
         )();
         
         if (result.success) {
+            console.log('Файл успешно отправлен');
+            
             // Добавляем сообщение в чат
             const message = {
                 id: result.message_id,
@@ -3951,10 +4342,48 @@ async function sendZKMediaMessage(file, caption = '') {
                 is_encrypted: true
             };
             
-            addMessageToChat(message, true, true);
+            await addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем кеш активного чата
+            if (activeChats[currentChatUserId]) {
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                
+                if (!activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
+                activeChats[currentChatUserId].messagesData.push({
+                    id: message.id,
+                    isMedia: true,
+                    mediaType: fileType,
+                    text: message.text,
+                    filename: file.name
+                });
+            }
+            
+            // Обновляем прогресс до 100% и скрываем
+            updateMediaUploadProgress(file.name, 100);
+            setTimeout(hideMediaUploadProgress, 1000);
+            
+            return true; // ВАЖНО: возвращаем true при успехе
+        } else {
+            throw new Error(result.message || 'Ошибка при отправке файла');
         }
     } catch (error) {
         console.error('Error sending ZK media message:', error);
+        hideMediaUploadProgress();
+        
+        if (error.message && error.message.includes('File too large')) {
+            alert('Файл слишком большой. Максимальный размер: 10MB');
+        } else if (error.message.includes('Maximum call stack')) {
+            alert('Файл слишком большой для обработки. Попробуйте файл меньшего размера.');
+        } else {
+            alert('Ошибка при отправке файла: ' + (error.message || 'Неизвестная ошибка'));
+        }
+        return false; // ВАЖНО: возвращаем false при ошибке
     }
 }
 

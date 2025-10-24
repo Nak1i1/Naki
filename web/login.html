@@ -148,6 +148,7 @@ async function login() {
         if (response.success) {
             showMessage(`Добро пожаловать, ${response.nickname}!`, 'success');
             localStorage.setItem('user_id', response.user_id);
+            // Сохраняем пароль в sessionStorage для ZK системы
             sessionStorage.setItem('user_password', password);
             
             // Сохраняем соль для ZK системы
