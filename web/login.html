@@ -1,173 +1,217 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вход в мессенджер</title>
-    <link rel="stylesheet" href="login.css">
-</head>
-<body>
-    <div class="login-container">
-        <h1>Войдите в аккаунт</h1>
-        
-        <div class="switch-container">
-            <div class="switch-option active" id="switch-register">Регистрация</div>
-            <div class="switch-slider" id="switch-slider"></div>
-            <div class="switch-option" id="switch-login">Вход</div>
-        </div>
-        
-        <div class="form-container">
-            <div id="register-form">
-                <input type="text" id="reg-nickname" placeholder="Введите свой никнейм" required>
-                <input type="email" id="reg-email" placeholder="Введите свою почту" required>
-                <input type="password" id="reg-password" placeholder="Введите пароль" required>
-                <button id="register-btn">Зарегистрироваться</button>
-            </div>
-            
-            <div id="login-form" class="hidden">
-                <input type="email" id="login-email" placeholder="Введите свою почту" required>
-                <input type="password" id="login-password" placeholder="Введите пароль" required>
-                <button id="login-btn">Войти</button>
-            </div>
-            
-            <div id="message" class="hidden"></div>
-        </div>
-    </div>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Вход в мессенджер</title>
+		<link rel="stylesheet" href="login.css" />
+	</head>
+	<body>
+		<div class="login-container">
+			<h1>Войдите в аккаунт</h1>
 
-    <script src="/eel.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const switchRegister = document.getElementById('switch-register');
-            const switchLogin = document.getElementById('switch-login');
-            const switchSlider = document.getElementById('switch-slider');
-            const registerForm = document.getElementById('register-form');
-            const loginForm = document.getElementById('login-form');
-            const messageDiv = document.getElementById('message');
-            
-            function showMessage(text, type) {
-                messageDiv.textContent = text;
-                messageDiv.className = type;
-                messageDiv.classList.remove('hidden');
-                
-                setTimeout(() => {
-                    messageDiv.classList.add('hidden');
-                }, 3000);
-            }
-            
-            function switchForm(formType) {
-                if (formType === 'register') {
-                    switchSlider.style.transform = 'translateX(0)';
-                    switchRegister.classList.add('active');
-                    switchLogin.classList.remove('active');
-                    registerForm.classList.remove('hidden');
-                    loginForm.classList.add('hidden');
-                } else {
-                    switchSlider.style.transform = 'translateX(100%)';
-                    switchLogin.classList.add('active');
-                    switchRegister.classList.remove('active');
-                    loginForm.classList.remove('hidden');
-                    registerForm.classList.add('hidden');
-                }
-                messageDiv.classList.add('hidden');
-            }
-            
-            switchRegister.addEventListener('click', () => switchForm('register'));
-            switchLogin.addEventListener('click', () => switchForm('login'));
-            
-            document.getElementById('register-btn').addEventListener('click', register);
-            document.getElementById('login-btn').addEventListener('click', login);
-            
-            // Добавляем обработчики для Enter
-            document.getElementById('reg-password').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') register();
-            });
-            
-            document.getElementById('login-password').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') login();
-            });
-            
-// В функции register() после успешной регистрации
-async function register() {
-    const nickname = document.getElementById('reg-nickname').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const password = document.getElementById('reg-password').value.trim();
-    
-    if (!nickname || !email || !password) {
-        showMessage('Все поля обязательны для заполнения', 'error');
-        return;
-    }
-    
-    if (password.length < 6) {
-        showMessage('Пароль должен содержать минимум 6 символов', 'error');
-        return;
-    }
-    
-    try {
-        showMessage('Регистрация...', 'success');
-        const response = await eel.register_user(nickname, email, password)();
-        showMessage(response.message, response.success ? 'success' : 'error');
-        
-        if (response.success) {
-            // После успешной регистрации автоматически входим
-            const loginResponse = await eel.login_user(email, password)();
-            if (loginResponse.success) {
-                localStorage.setItem('user_id', loginResponse.user_id);
-                sessionStorage.setItem('user_password', password);
-                
-                // Сохраняем соль для ZK системы
-                if (loginResponse.salt) {
-                    localStorage.setItem('user_salt', loginResponse.salt);
-                }
-                
-                showMessage('Регистрация успешна! Инициализация системы безопасности...', 'success');
-                
-                // Переходим в мессенджер
-                setTimeout(() => {
-                    window.location.href = 'index.html';
-                }, 1500);
-            }
-        }
-    } catch (error) {
-        showMessage('Ошибка соединения с сервером', 'error');
-        console.error('Registration error:', error);
-    }
-}
-            
-async function login() {
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value.trim();
-    
-    if (!email || !password) {
-        showMessage('Поля email и пароль обязательны', 'error');
-        return;
-    }
-    
-    try {
-        showMessage('Вход...', 'success');
-        const response = await eel.login_user(email, password)();
-        if (response.success) {
-            showMessage(`Добро пожаловать, ${response.nickname}!`, 'success');
-            localStorage.setItem('user_id', response.user_id);
-            // Сохраняем пароль в sessionStorage для ZK системы
-            sessionStorage.setItem('user_password', password);
-            
-            // Сохраняем соль для ZK системы
-            if (response.salt) {
-                localStorage.setItem('user_salt', response.salt);
-            }
-            
-            setTimeout(() => {
-                window.location.href = 'index.html';
-            }, 1000);
-        } else {
-            showMessage(response.message, 'error');
-        }
-    } catch (error) {
-        showMessage('Ошибка соединения с сервером', 'error');
-        console.error('Login error:', error);
-    }
-}
-        });
-    </script>
-</body>
+			<div class="switch-container">
+				<div class="switch-option active" id="switch-register">Регистрация</div>
+				<div class="switch-slider" id="switch-slider"></div>
+				<div class="switch-option" id="switch-login">Вход</div>
+			</div>
+
+			<div class="form-container">
+				<div id="register-form">
+					<input
+						type="text"
+						id="reg-nickname"
+						placeholder="Введите свой никнейм"
+						required
+					/>
+					<input
+						type="email"
+						id="reg-email"
+						placeholder="Введите свою почту"
+						required
+					/>
+					<input
+						type="password"
+						id="reg-password"
+						placeholder="Введите пароль"
+						required
+					/>
+					<button id="register-btn">Зарегистрироваться</button>
+				</div>
+
+				<div id="login-form" class="hidden">
+					<input
+						type="email"
+						id="login-email"
+						placeholder="Введите свою почту"
+						required
+					/>
+					<input
+						type="password"
+						id="login-password"
+						placeholder="Введите пароль"
+						required
+					/>
+					<button id="login-btn">Войти</button>
+				</div>
+
+				<div id="message" class="hidden"></div>
+			</div>
+		</div>
+
+		<script src="/eel.js"></script>
+		<script>
+			document.addEventListener('DOMContentLoaded', function () {
+				const switchRegister = document.getElementById('switch-register')
+				const switchLogin = document.getElementById('switch-login')
+				const switchSlider = document.getElementById('switch-slider')
+				const registerForm = document.getElementById('register-form')
+				const loginForm = document.getElementById('login-form')
+				const messageDiv = document.getElementById('message')
+
+				function showMessage(text, type) {
+					messageDiv.textContent = text
+					messageDiv.className = type
+					messageDiv.classList.remove('hidden')
+
+					setTimeout(() => {
+						messageDiv.classList.add('hidden')
+					}, 3000)
+				}
+
+				function switchForm(formType) {
+					if (formType === 'register') {
+						switchSlider.style.transform = 'translateX(0)'
+						switchRegister.classList.add('active')
+						switchLogin.classList.remove('active')
+						registerForm.classList.remove('hidden')
+						loginForm.classList.add('hidden')
+					} else {
+						switchSlider.style.transform = 'translateX(100%)'
+						switchLogin.classList.add('active')
+						switchRegister.classList.remove('active')
+						loginForm.classList.remove('hidden')
+						registerForm.classList.add('hidden')
+					}
+					messageDiv.classList.add('hidden')
+				}
+
+				switchRegister.addEventListener('click', () => switchForm('register'))
+				switchLogin.addEventListener('click', () => switchForm('login'))
+
+				document
+					.getElementById('register-btn')
+					.addEventListener('click', register)
+				document.getElementById('login-btn').addEventListener('click', login)
+
+				// Добавляем обработчики для Enter
+				document
+					.getElementById('reg-password')
+					.addEventListener('keypress', function (e) {
+						if (e.key === 'Enter') register()
+					})
+
+				document
+					.getElementById('login-password')
+					.addEventListener('keypress', function (e) {
+						if (e.key === 'Enter') login()
+					})
+
+				async function register() {
+					const nickname = document.getElementById('reg-nickname').value.trim()
+					const email = document.getElementById('reg-email').value.trim()
+					const password = document.getElementById('reg-password').value.trim()
+
+					if (!nickname || !email || !password) {
+						showMessage('Все поля обязательны для заполнения', 'error')
+						return
+					}
+
+					if (password.length < 6) {
+						showMessage('Пароль должен содержать минимум 6 символов', 'error')
+						return
+					}
+
+					if (nickname.length < 2) {
+						showMessage('Никнейм должен содержать минимум 2 символа', 'error')
+						return
+					}
+
+					try {
+						showMessage('Регистрация...', 'success')
+						const response = await eel.register_user(
+							nickname,
+							email,
+							password
+						)()
+						showMessage(
+							response.message,
+							response.success ? 'success' : 'error'
+						)
+
+						if (response.success) {
+							// После успешной регистрации автоматически входим
+							const loginResponse = await eel.login_user(email, password)()
+							if (loginResponse.success) {
+								localStorage.setItem('user_id', loginResponse.user_id)
+
+								// Сохраняем соль для ZK системы
+								if (loginResponse.salt) {
+									localStorage.setItem('user_salt', loginResponse.salt)
+								}
+
+								showMessage(
+									`Добро пожаловать, ${loginResponse.nickname}!`,
+									'success'
+								)
+
+								// Переходим в мессенджер
+								setTimeout(() => {
+									window.location.href = 'index.html'
+								}, 1500)
+							}
+						}
+					} catch (error) {
+						showMessage('Ошибка соединения с сервером', 'error')
+						console.error('Registration error:', error)
+					}
+				}
+
+				async function login() {
+					const email = document.getElementById('login-email').value.trim()
+					const password = document
+						.getElementById('login-password')
+						.value.trim()
+
+					if (!email || !password) {
+						showMessage('Поля email и пароль обязательны', 'error')
+						return
+					}
+
+					try {
+						showMessage('Вход...', 'success')
+						const response = await eel.login_user(email, password)()
+						if (response.success) {
+							showMessage(`Добро пожаловать, ${response.nickname}!`, 'success')
+							localStorage.setItem('user_id', response.user_id)
+
+							// Сохраняем соль для ZK системы
+							if (response.salt) {
+								localStorage.setItem('user_salt', response.salt)
+							}
+
+							setTimeout(() => {
+								window.location.href = 'index.html'
+							}, 1000)
+						} else {
+							showMessage(response.message, 'error')
+						}
+					} catch (error) {
+						showMessage('Ошибка соединения с сервером', 'error')
+						console.error('Login error:', error)
+					}
+				}
+			})
+		</script>
+	</body>
 </html>

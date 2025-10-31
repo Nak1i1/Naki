@@ -1,0 +1,1608 @@
+    document.getElementById('voice-message-btn').addEventListener('mousedown', startRecording);
+    document.getElementById('voice-message-btn').addEventListener('touchstart', startRecording);
+    document.getElementById('voice-message-btn').addEventListener('mouseup', stopRecording);
+    document.getElementById('voice-message-btn').addEventListener('touchend', stopRecording);
+    document.getElementById('voice-message-btn').addEventListener('mouseleave', stopRecording);
+
+
+
+            function stopRecording(e) {
+            e.preventDefault();
+            
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                // Скрываем индикатор записи
+                document.getElementById('recording-container').classList.add('hidden');
+                document.getElementById('message-input').classList.remove('hidden');
+            }
+        }
+
+
+        function updateRecordingTime() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                const recordingTime = ((Date.now() - recordingStartTime) / 1000).toFixed(1);
+                document.getElementById('recording-time').textContent = recordingTime;
+                setTimeout(updateRecordingTime, 100);
+            }
+        }
+
+
+
+ async function startRecording(e) {
+    e.preventDefault();
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        recordingStartTime = Date.now();
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            const recordingTime = (Date.now() - recordingStartTime) / 1000;
+            if (recordingTime < 0.5) {
+                alert('Сообщение слишком короткое');
+                return;
+            }
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            await sendZKVoiceMessage(audioBlob, recordingTime);
+        };
+        
+        mediaRecorder.start(100);
+        document.getElementById('message-input').classList.add('hidden');
+        document.getElementById('recording-container').classList.remove('hidden');
+        updateRecordingTime();
+    } catch (error) {
+        console.error('Ошибка записи:', error);
+        alert('Не удалось получить доступ к микрофону');
+    }
+}
+
+
+async function sendVoiceMessage(audioBlob, duration, oldVisualizationData = null) {
+    if (!currentChatUserId || !audioBlob) return;
+    
+    try {
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        
+        reader.onload = async () => {
+            const audioData = reader.result.split(',')[1];
+            
+            // Анализируем аудио и создаем визуализацию
+            const visualizationData = await analyzeAudioAndCreateVisualization(audioBlob, duration);
+            
+            const result = await eel.send_voice_message(
+                localStorage.getItem('user_id'),
+                currentChatUserId,
+                audioData,
+                duration,
+                visualizationData
+            )();
+            
+            if (result.success) {
+                const message = {
+                    id: result.message_id,
+                    sender_id: localStorage.getItem('user_id'),
+                    receiver_id: currentChatUserId,
+                    text: '[Голосовое сообщение]',
+                    timestamp: result.timestamp,
+                    read: result.read,
+                    isVoiceMessage: true,
+                    voiceData: audioData,
+                    duration: duration,
+                    visualization: visualizationData,
+                    listened: currentChatUserId === localStorage.getItem('user_id')
+                };
+                
+                // Инициализируем messagesData, если его нет
+                if (!activeChats[currentChatUserId]) {
+                    activeChats[currentChatUserId] = {
+                        messages: '',
+                        lastMessageId: null,
+                        messagesData: []
+                    };
+                } else if (!activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
+                addMessageToChat(message, true, true);
+                lastMessageId = message.id;
+                
+                // Сохраняем состояние чата
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                
+                // Добавляем данные сообщения в кеш
+                activeChats[currentChatUserId].messagesData.push({
+                    id: message.id,
+                    voiceData: message.voiceData,
+                    duration: message.duration,
+                    isVoiceMessage: true,
+                    listened: message.listened,
+                    visualization: visualizationData
+                });
+                
+                // Обновляем последнее сообщение на карточке
+                updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
+                
+                // Устанавливаем обработчики для голосовых сообщений
+                setupVoiceMessageHandlers();
+            }
+        };
+    } catch (error) {
+        console.error('Ошибка отправки голосового сообщения:', error);
+    }
+}
+
+
+
+
+function createVoiceMessageElement(message) {
+    const voiceMessage = document.createElement('div');
+    voiceMessage.className = 'voice-message';
+    voiceMessage.dataset.messageId = message.id;
+    
+    const playBtn = document.createElement('button');
+    playBtn.className = 'play-voice-btn';
+    playBtn.innerHTML = '<img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s" alt="Play">';
+    
+    const isMyMessage = message.sender_id === localStorage.getItem('user_id');
+    
+    // Проверяем localStorage перед установкой opacity
+    const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+    const isListened = listenedMessages[message.id] || message.listened;
+    
+    // Создаем индикатор прослушивания
+    const listenIndicator = document.createElement('div');
+    listenIndicator.className = 'listen-indicator';
+    
+    if (isMyMessage) {
+        listenIndicator.style.opacity = isListened ? '0' : '0.7';
+    } else {
+        listenIndicator.style.opacity = isListened ? '0' : '0.7';
+    }
+    
+    voiceMessage.appendChild(listenIndicator);
+    
+    const visualizationContainer = document.createElement('div');
+    visualizationContainer.className = 'voice-visualization-container';
+    
+    const visualization = document.createElement('div');
+    visualization.className = 'voice-visualization';
+    
+    // Получаем данные визуализации из сообщения
+    const visualizationData = message.visualization || Array(20).fill(0.3);
+    
+    // Создаем полоски визуализации
+// Создаем полоски визуализации
+for (let i = 0; i < 20; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'voice-bar';
+    bar.style.setProperty('--i', i);
+    
+    // Нормализуем значение (0-1) и масштабируем до высоты (3-30px)
+    const height = Math.max(3, visualizationData[i] * 30);
+    bar.style.height = `${height}px`;
+    
+    if (isMyMessage) {
+        bar.style.backgroundColor = `rgba(0, 0, 0, ${0.2 + visualizationData[i] * 0.8})`;
+    } else {
+        bar.style.backgroundColor = `rgba(255, 255, 255, ${0.5 + visualizationData[i] * 0.5})`;
+    }
+    
+    visualization.appendChild(bar);
+}
+    
+    // Добавляем ползунок прогресса
+    const progressBar = document.createElement('div');
+    progressBar.className = 'voice-progress';
+    progressBar.style.display = 'none';
+    
+    visualizationContainer.appendChild(visualization);
+    visualizationContainer.appendChild(progressBar);
+    
+    const time = document.createElement('div');
+    time.className = 'voice-time';
+    time.dataset.duration = message.duration;
+    time.textContent = `${message.duration.toFixed(1)} сек.`;
+    
+    voiceMessage.appendChild(playBtn);
+    voiceMessage.appendChild(visualizationContainer);
+    voiceMessage.appendChild(time);
+    
+    return voiceMessage;
+}
+
+
+
+
+async function sendZKVoiceMessage(audioBlob, duration) {
+    if (!currentChatUserId || !userEncryptionKey) return;
+    
+    try {
+        const encryptedVoiceData = await zkCrypto.encryptFile(audioBlob, userEncryptionKey);
+        
+        const result = await eel.send_voice_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedVoiceData,
+            duration
+        )();
+        
+        if (result.success) {
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: '[Голосовое сообщение]',
+                timestamp: result.timestamp,
+                read: result.read,
+                isVoiceMessage: true,
+                duration: duration,
+                is_encrypted: true
+            };
+            
+            // Сохраняем зашифрованные данные в кеш для своих сообщений
+            if (!activeChats[currentChatUserId]) {
+                activeChats[currentChatUserId] = {
+                    messages: '',
+                    lastMessageId: null,
+                    messagesData: []
+                };
+            }
+            
+            if (!activeChats[currentChatUserId].messagesData) {
+                activeChats[currentChatUserId].messagesData = [];
+            }
+            
+            activeChats[currentChatUserId].messagesData.push({
+                id: message.id,
+                voiceData: encryptedVoiceData, // Сохраняем зашифрованные данные
+                duration: duration,
+                isVoiceMessage: true,
+                listened: true
+            });
+            
+            addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем состояние чата
+            const messagesContainer = document.getElementById('chat-messages');
+            activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+            activeChats[currentChatUserId].lastMessageId = lastMessageId;
+            
+            // Обновляем последнее сообщение на карточке
+            updateLastMessageOnUserCard(currentChatUserId, 'Голосовое сообщение', true);
+            
+            // Устанавливаем обработчики для голосовых сообщений
+            setupVoiceMessageHandlers();
+        }
+    } catch (error) {
+        console.error('Error sending ZK voice message:', error);
+    }
+}
+
+
+
+async function analyzeAudioAndCreateVisualization(audioBlob, duration) {
+    try {
+        // Создаем аудиоконтекст
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        
+        // Получаем данные канала (берем первый канал)
+        const channelData = audioBuffer.getChannelData(0);
+        const sampleRate = audioBuffer.sampleRate;
+        
+        // Количество полосок
+        const barsCount = 20;
+        // Длительность одного сегмента в секундах
+        const segmentDuration = duration / barsCount;
+        // Количество семплов в одном сегменте
+        const samplesPerSegment = Math.floor(segmentDuration * sampleRate);
+        
+        const visualizationData = [];
+        
+        // Анализируем каждый сегмент
+        for (let i = 0; i < barsCount; i++) {
+            const startSample = i * samplesPerSegment;
+            const endSample = Math.min((i + 1) * samplesPerSegment, channelData.length);
+            
+            let maxAmplitude = 0;
+            
+            // Находим максимальную амплитуду в сегменте
+            for (let j = startSample; j < endSample; j++) {
+                const amplitude = Math.abs(channelData[j]);
+                if (amplitude > maxAmplitude) {
+                    maxAmplitude = amplitude;
+                }
+            }
+            
+            // Нормализуем значение от 0 до 1
+            visualizationData.push(maxAmplitude);
+        }
+        
+        return visualizationData;
+    } catch (error) {
+        console.error('Ошибка анализа аудио:', error);
+        // Возвращаем массив нулей в случае ошибки
+        return Array(20).fill(0);
+    }
+}
+
+
+
+
+
+function playZKVoiceMessage(audioBlob, voiceMessageElement, duration) {
+    // Останавливаем текущее воспроизведение, если есть
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio = null;
+        
+        if (currentPlayingVoiceElement) {
+            stopVoiceMessage(currentPlayingVoiceElement, true);
+        }
+    }
+
+    // Устанавливаем класс playing для текущего элемента
+    voiceMessageElement.classList.add('playing');
+    voiceMessagePlaying = true;
+    currentPlayingVoiceElement = voiceMessageElement;
+    
+    // Создаем URL для аудио blob
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+    currentPlayingAudio = audio;
+    
+    const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
+    playBtn.src = 'https://png.klev.club/uploads/posts/2024-05/png-klev-club-uejr-p-ikonka-pauzi-png-30.png';
+    
+    const progressBar = voiceMessageElement.querySelector('.voice-progress');
+    progressBar.style.display = 'block';
+    progressBar.style.left = '0%';
+    
+    const timeElement = voiceMessageElement.querySelector('.voice-time');
+    timeElement.dataset.duration = duration;
+    
+    // Функция обновления прогресса
+    const updateProgress = () => {
+        if (!voiceMessagePlaying) return;
+        
+        const currentPos = audio.currentTime;
+        const progressPercent = (currentPos / duration) * 100;
+        
+        progressBar.style.left = `${progressPercent}%`;
+        
+        const bars = voiceMessageElement.querySelectorAll('.voice-bar');
+        bars.forEach((bar, i) => {
+            const barPos = (i / bars.length) * 100;
+            if (barPos < progressPercent) {
+                bar.style.opacity = '0.7';
+            } else {
+                bar.style.opacity = '0.3';
+            }
+        });
+        
+        timeElement.textContent = `${currentPos.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        
+        if (currentPos >= duration) {
+            handleVoiceMessagePlayed(voiceMessageElement);
+        } else if (voiceMessagePlaying) {
+            requestAnimationFrame(updateProgress);
+        }
+    };
+        
+    // Обработчики событий аудио
+    audio.addEventListener('ended', () => {
+        handleVoiceMessagePlayed(voiceMessageElement);
+    });
+    
+    audio.addEventListener('pause', () => {
+        voiceMessagePlaying = false;
+        const currentTime = audio.currentTime;
+        const progressPercent = (currentTime / duration) * 100;
+        progressBar.style.left = `${progressPercent}%`;
+        timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        
+        playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
+    });
+    
+    audio.addEventListener('error', (e) => {
+        console.error('Audio error:', e);
+        stopVoiceMessage(voiceMessageElement, true);
+        alert('Ошибка воспроизведения голосового сообщения');
+        
+        // Освобождаем URL
+        URL.revokeObjectURL(audioUrl);
+    });
+    
+    audio.addEventListener('canplaythrough', () => {
+        // Запускаем воспроизведение когда аудио готово
+        audio.play().then(() => {
+            updateProgress();
+        }).catch(error => {
+            console.error('Ошибка воспроизведения:', error);
+            stopVoiceMessage(voiceMessageElement, true);
+            URL.revokeObjectURL(audioUrl);
+        });
+    });
+    
+    audio.addEventListener('load', () => {
+        // Освобождаем URL после загрузки
+        URL.revokeObjectURL(audioUrl);
+    });
+    
+    // Обработчик для очистки при завершении
+    const cleanup = () => {
+        URL.revokeObjectURL(audioUrl);
+        audio.removeEventListener('ended', cleanup);
+        audio.removeEventListener('error', cleanup);
+    };
+    
+    audio.addEventListener('ended', cleanup);
+    audio.addEventListener('error', cleanup);
+}
+
+
+
+
+function handleVoiceMessagePlayed(voiceMessageElement) {
+    const messageElement = voiceMessageElement.closest('.message');
+    const messageId = messageElement?.dataset.id;
+    const timeElement = voiceMessageElement.querySelector('.voice-time');
+    const duration = parseFloat(timeElement.dataset.duration) || 0;
+    
+    // Скрываем ползунок
+    const progressBar = voiceMessageElement.querySelector('.voice-progress');
+    progressBar.style.display = 'none';
+    
+    timeElement.textContent = `${duration.toFixed(1)} сек.`;
+    stopVoiceMessage(voiceMessageElement, true);
+    
+    const isMyMessage = messageElement.classList.contains('my-message');
+    const indicator = voiceMessageElement.querySelector('.listen-indicator');
+    
+    // Для своих сообщений НЕ изменяем состояние индикатора
+    if (!isMyMessage && indicator) {
+        indicator.style.opacity = '0';
+        
+        // Сохраняем в localStorage, что сообщение прослушано
+        if (messageId) {
+            const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+            listenedMessages[messageId] = true;
+            localStorage.setItem('listenedVoiceMessages', JSON.stringify(listenedMessages));
+        }
+    }
+    
+    // Обновляем состояние в кеше только для чужих сообщений
+    if (!isMyMessage && currentChatUserId && activeChats[currentChatUserId]?.messagesData) {
+        const messageIndex = activeChats[currentChatUserId].messagesData.findIndex(m => m.id === messageId);
+        if (messageIndex !== -1) {
+            activeChats[currentChatUserId].messagesData[messageIndex].listened = true;
+        }
+    }
+    
+    // Отправляем на сервер информацию о прослушивании (только для чужих сообщений)
+    if (messageId && !isMyMessage) {
+        const userId = localStorage.getItem('user_id');
+        eel.mark_voice_message_as_listened(messageId, userId)();
+    }
+}
+
+
+
+function stopVoiceMessage(voiceMessageElement = null, reset = false) {
+    if (!voiceMessageElement) {
+        voiceMessageElement = currentPlayingVoiceElement;
+    }
+    
+    if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        if (reset) {
+            currentPlayingAudio.currentTime = 0;
+            currentPlayingAudio = null;
+        }
+        voiceMessagePlaying = false;
+    }
+    
+    if (voiceMessageElement) {
+        voiceMessageElement.classList.remove('playing');
+        const playBtn = voiceMessageElement.querySelector('.play-voice-btn img');
+        playBtn.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdnax9muCZwZsJujMzKiWx8tnQXgbwNaX39A&s';
+        
+        const timeElement = voiceMessageElement.querySelector('.voice-time');
+        const duration = parseFloat(timeElement.dataset.duration) || 0;
+        const progressBar = voiceMessageElement.querySelector('.voice-progress');
+        
+        if (reset) {
+            progressBar.style.display = 'none';
+            timeElement.textContent = `${duration.toFixed(1)} сек.`;
+            currentPlayingVoiceElement = null;
+        } else {
+            // При паузе сохраняем текущее состояние прогресса
+            const currentTime = currentPlayingAudio?.currentTime || 0;
+            const progressPercent = (currentTime / duration) * 100;
+            progressBar.style.left = `${progressPercent}%`;
+            timeElement.textContent = `${currentTime.toFixed(1)} / ${duration.toFixed(1)} сек.`;
+        }
+    }
+}
+
+
+
+
+function setupVoiceMessageHandlers() {
+    const voiceMessages = document.querySelectorAll('.voice-message');
+    voiceMessages.forEach((voiceMessage) => {
+        const playBtn = voiceMessage.querySelector('.play-voice-btn');
+        playBtn.addEventListener('click', async () => {
+            const isPlaying = voiceMessage.classList.contains('playing');
+            const messageElement = voiceMessage.closest('.message');
+            const isMyMessage = messageElement.classList.contains('my-message');
+            
+            if (isPlaying) {
+                stopVoiceMessage(voiceMessage);
+            } else {
+                // Для своих сообщений используем данные из кеша
+                if (isMyMessage) {
+                    const messageId = messageElement.dataset.id;
+                    const cachedMessage = activeChats[currentChatUserId]?.messagesData?.find(m => m.id === messageId);
+                    if (cachedMessage && cachedMessage.voiceData && userEncryptionKey) {
+                        try {
+                            const decryptedData = await zkCrypto.decryptFile(cachedMessage.voiceData, userEncryptionKey);
+                            const audioBlob = new Blob([decryptedData], { type: 'audio/wav' });
+                            playZKVoiceMessage(audioBlob, voiceMessage, cachedMessage.duration);
+                            return;
+                        } catch (error) {
+                            console.error('Error decrypting cached voice message:', error);
+                        }
+                    }
+                }
+                
+                // Для чужих сообщений запрашиваем данные с сервера
+                const messageId = messageElement.dataset.id;
+                const response = await eel.get_voice_message(messageId)();
+                if (response.success && userEncryptionKey) {
+                    try {
+                        const decryptedData = await zkCrypto.decryptFile(response.encrypted_voice_data, userEncryptionKey);
+                        const audioBlob = new Blob([decryptedData], { type: 'audio/wav' });
+                        playZKVoiceMessage(audioBlob, voiceMessage, response.duration);
+                    } catch (error) {
+                        console.error('Error decrypting voice message:', error);
+                        alert('Не удалось расшифровать голосовое сообщение');
+                    }
+                } else {
+                    alert('Не удалось загрузить голосовое сообщение');
+                }
+            }
+        });
+    });
+}
+
+
+
+
+
+async function updateListenIndicators() {
+    if (!currentChatUserId) return;
+    
+    try {
+        const messages = Array.from(document.querySelectorAll('.message'))
+            .map(el => ({id: el.dataset.id, isVoice: !!el.querySelector('.voice-message')}))
+            .filter(msg => msg.id && msg.isVoice);
+        
+        if (messages.length === 0) return;
+        
+        // Проверяем localStorage
+        const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+        
+        // Сначала обновляем индикаторы на основе localStorage
+        messages.forEach(msg => {
+            const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
+            if (messageElement) {
+                const voiceMessage = messageElement.querySelector('.voice-message');
+                if (voiceMessage) {
+                    const indicator = voiceMessage.querySelector('.listen-indicator');
+                    if (indicator) {
+                        const isMyMessage = messageElement.classList.contains('my-message');
+                        
+                        // Если сообщение уже прослушано (по данным localStorage), скрываем индикатор
+                        if (listenedMessages[msg.id] && !isMyMessage) {
+                            indicator.style.opacity = '0';
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Затем проверяем статус на сервере
+        const listenedStatus = await eel.check_voice_messages_listened_status(messages.map(m => m.id))();
+        
+        messages.forEach(msg => {
+            const messageElement = document.querySelector(`.message[data-id="${msg.id}"]`);
+            if (messageElement) {
+                const voiceMessage = messageElement.querySelector('.voice-message'); // Исправлено здесь
+                if (voiceMessage) {
+                    const indicator = voiceMessage.querySelector('.listen-indicator');
+                    if (indicator) {
+                        const isListened = listenedStatus[msg.id] || false;
+                        const isMyMessage = messageElement.classList.contains('my-message');
+                        
+                        if (!isMyMessage && isListened) {
+                            indicator.style.opacity = '0';
+                            
+                            // Сохраняем в localStorage
+                            const listenedMessages = JSON.parse(localStorage.getItem('listenedVoiceMessages') || '{}');
+                            listenedMessages[msg.id] = true;
+                            localStorage.setItem('listenedVoiceMessages', JSON.stringify(listenedMessages));
+                        }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при обновлении индикаторов прослушивания:', error);
+    }
+}
+
+
+
+// Добавим обработчик для загрузки видео
+document.addEventListener('click', function(e) {
+    const videoLoadElement = e.target.closest('.video-loading');
+    if (videoLoadElement) {
+        const messageId = videoLoadElement.dataset.messageId;
+        loadVideoMessage(messageId);
+    }
+});
+
+
+
+async function loadVideoMessage(messageId, container) {
+    try {
+        // Показываем индикатор загрузки
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'video-loading-overlay';
+        loadingOverlay.innerHTML = `
+            <div class="video-loading-content">
+                <div class="video-loading-spinner"></div>
+                <div class="video-loading-text">Загрузка видео...</div>
+                <div class="video-loading-progress">0%</div>
+                <button class="video-loading-cancel">Отмена</button>
+            </div>
+        `;
+        
+        document.body.appendChild(loadingOverlay);
+        
+        // Получаем данные видео
+        const response = await eel.get_media_message(messageId)();
+        if (!response.success) {
+            throw new Error(response.message || 'Failed to get video data');
+        }
+        
+        // Находим элементы в DOM
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) {
+            throw new Error('Video elements not found');
+        }
+        
+        // Устанавливаем источник видео
+        videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Скрываем элемент загрузки и показываем видео
+        loadingElement.classList.add('hidden');
+        videoElement.classList.remove('hidden');
+        
+        // Удаляем оверлей загрузки
+        loadingOverlay.remove();
+        
+        // Помечаем как прочитанное, если это не мое сообщение
+        if (!videoElement.closest('.my-message')) {
+            await eel.mark_messages_as_read(
+                videoElement.closest('.message').dataset.sender_id,
+                localStorage.getItem('user_id')
+            )();
+        }
+        
+        // Обработчик отмены загрузки
+        const cancelBtn = loadingOverlay.querySelector('.video-loading-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                loadingOverlay.remove();
+            });
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки видео:', error);
+        
+        // Обновляем элемент загрузки с сообщением об ошибке
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">Ошибка загрузки</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadVideoMessage(messageId, container);
+            });
+        }
+        
+        document.querySelector('.video-loading-overlay')?.remove();
+    }
+}
+
+
+
+async function loadVideoMessage(messageId) {
+    try {
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) return;
+        
+        // Показываем индикатор загрузки
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'video-loading-overlay';
+        loadingOverlay.innerHTML = `
+            <div class="video-loading-content">
+                <div class="video-loading-spinner"></div>
+                <div class="video-loading-text">Загрузка видео...</div>
+                <div class="video-loading-progress">0%</div>
+                <button class="video-loading-cancel">Отмена</button>
+            </div>
+        `;
+        
+        document.body.appendChild(loadingOverlay);
+        
+        // Получаем данные видео
+        const response = await eel.get_media_message(messageId)();
+        if (!response.success) {
+            throw new Error(response.message || 'Failed to get video data');
+        }
+        
+        // Устанавливаем источник видео
+        videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Скрываем элемент загрузки и показываем видео
+        loadingElement.classList.add('hidden');
+        videoElement.classList.remove('hidden');
+        
+        // Удаляем оверлей загрузки
+        loadingOverlay.remove();
+        
+        // Помечаем как прочитанное, если это не мое сообщение
+        if (!videoElement.closest('.my-message')) {
+            await eel.mark_messages_as_read(
+                videoElement.closest('.message').dataset.sender_id,
+                localStorage.getItem('user_id')
+            )();
+        }
+        
+        // Обработчик отмены загрузки
+        const cancelBtn = loadingOverlay.querySelector('.video-loading-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                loadingOverlay.remove();
+            });
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки видео:', error);
+        
+        // Обновляем элемент загрузки с сообщением об ошибке
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">Ошибка загрузки</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadVideoMessage(messageId);
+            });
+        }
+        
+        document.querySelector('.video-loading-overlay')?.remove();
+    }
+}
+
+
+document.addEventListener('click', function(e) {
+    const videoLoadElement = e.target.closest('.video-loading');
+    if (videoLoadElement) {
+        const messageId = videoLoadElement.dataset.messageId;
+        loadVideoMessage(messageId);
+    }
+});
+
+
+
+
+async function loadZKVideoMessage(messageId) {
+    try {
+        console.log('Starting video load for message:', messageId);
+        
+        // Проверяем наличие ключа, но не проверяем его извлекаемость
+        if (!userEncryptionKey) {
+            console.error('Encryption key not available');
+            const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+            if (loadingElement) {
+                loadingElement.innerHTML = '<div class="video-load-error">Ошибка безопасности</div>';
+            }
+            return;
+        }
+        
+        const videoElement = document.querySelector(`.video-preview[data-message-id="${messageId}"]`);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        
+        if (!videoElement || !loadingElement) {
+            console.error('Video elements not found for message:', messageId);
+            return;
+        }
+
+        // Показываем индикатор загрузки
+        loadingElement.innerHTML = '<div class="video-load-spinner">Загрузка данных...</div>';
+        
+        console.log('Fetching media data from server...');
+        const response = await eel.get_media_message(messageId)();
+        
+        if (!response.success) {
+            throw new Error('Server error: ' + (response.message || 'Failed to get video data'));
+        }
+
+        console.log('Media data received, encrypted data length:', response.encrypted_media_data?.length);
+        
+        if (!response.encrypted_media_data) {
+            throw new Error('No encrypted data received');
+        }
+
+        // Показываем прогресс расшифровки
+        loadingElement.innerHTML = '<div class="video-load-spinner">Расшифровка видео...</div>';
+        
+        try {
+            console.log('Starting decryption...');
+            // Расшифровываем видео
+            const decryptedData = await zkCrypto.decryptFile(response.encrypted_media_data, userEncryptionKey);
+            console.log('Decryption successful, data length:', decryptedData.byteLength);
+            
+            if (decryptedData.byteLength === 0) {
+                throw new Error('Decrypted data is empty');
+            }
+            
+            const blob = new Blob([decryptedData], { type: 'video/mp4' });
+            console.log('Blob created, size:', blob.size);
+            
+            // Создаем URL для blob
+            const videoUrl = URL.createObjectURL(blob);
+            videoElement.src = videoUrl;
+            
+            // Обработчик для очистки URL при завершении
+            videoElement.addEventListener('load', () => {
+                URL.revokeObjectURL(videoUrl);
+            });
+            
+            videoElement.addEventListener('error', (e) => {
+                console.error('Video element error:', e);
+                URL.revokeObjectURL(videoUrl);
+            });
+            
+            // Проверяем, может ли видео воспроизводиться
+            videoElement.addEventListener('canplay', () => {
+                console.log('Video can play');
+                loadingElement.classList.add('hidden');
+                videoElement.classList.remove('hidden');
+            });
+            
+            videoElement.addEventListener('error', (e) => {
+                console.error('Video playback error:', e);
+                loadingElement.innerHTML = `
+                    <div class="video-load-error">Ошибка воспроизведения</div>
+                    <button class="video-retry-btn">Повторить</button>
+                `;
+                loadingElement.classList.remove('hidden');
+                videoElement.classList.add('hidden');
+            });
+            
+            // Пытаемся воспроизвести для проверки
+            videoElement.load();
+            
+        } catch (decryptError) {
+            console.error('Decryption error details:', decryptError);
+            throw new Error('Ошибка расшифровки: ' + decryptError.message);
+        }
+        
+    } catch (error) {
+        console.error('Ошибка загрузки ZK видео:', error);
+        const loadingElement = document.querySelector(`.video-loading[data-message-id="${messageId}"]`);
+        if (loadingElement) {
+            loadingElement.innerHTML = `
+                <div class="video-load-error">${error.message || 'Ошибка загрузки'}</div>
+                <button class="video-retry-btn">Повторить</button>
+            `;
+            
+            loadingElement.querySelector('.video-retry-btn').addEventListener('click', () => {
+                loadZKVideoMessage(messageId);
+            });
+        }
+    }
+}
+
+
+
+async function loadVideoFromServer(messageId, container) {
+    try {
+        // Показываем индикатор загрузки
+        container.innerHTML = '<div class="video-load-spinner">Загрузка...</div>';
+        
+        // Получаем данные видео с сервера
+        const response = await eel.get_media_message(messageId)();
+        if (!response.success) {
+            throw new Error(response.message || 'Failed to get video data');
+        }
+        
+        // Создаем элемент видео
+        const videoElement = document.createElement('video');
+        videoElement.className = 'video-preview';
+        videoElement.controls = true;
+        videoElement.dataset.messageId = messageId;
+        videoElement.src = `data:video/mp4;base64,${response.media_data}`;
+        
+        // Заменяем индикатор загрузки на видео
+        container.innerHTML = '';
+        container.appendChild(videoElement);
+        
+        return true;
+    } catch (error) {
+        console.error('Error loading video:', error);
+        container.innerHTML = `
+            <div class="video-load-error">
+                Ошибка загрузки
+                <button class="video-retry-btn">Повторить</button>
+            </div>
+        `;
+        
+        // Добавляем обработчик для кнопки повтора
+        container.querySelector('.video-retry-btn').addEventListener('click', () => {
+            loadVideoFromServer(messageId, container);
+        });
+        
+        return false;
+    }
+}
+
+
+
+// Вспомогательная функция для сохранения видео в локальное хранилище
+async function saveVideoToLocalStorage(messageId, videoData) {
+    try {
+        // Создаем папку для хранения медиа, если ее нет
+        const mediaDir = await eel.create_video_cache_folder()();
+        if (!mediaDir) throw new Error("Не удалось создать папку для медиа");
+        
+        // Сохраняем видео в файл
+        const result = await eel.save_video_to_cache(messageId, videoData)();
+        return result.success;
+    } catch (error) {
+        console.error('Ошибка сохранения видео:', error);
+        return false;
+    }
+}
+
+function formatMessageTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat(bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+}
+
+
+function handleFileSelect(e) {
+    const files = Array.from(e.target.files);
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB
+    
+    // Проверяем размер отдельных файлов
+    const oversizedFiles = files.filter(file => file.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+        alert(`Следующие файлы превышают максимальный размер 10MB: ${oversizedFiles.map(f => f.name).join(', ')}`);
+        return;
+    }
+    
+    // Проверяем общий размер
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > MAX_TOTAL_SIZE) {
+        alert(`Общий размер файлов превышает ${MAX_TOTAL_SIZE / 1024 / 1024}MB`);
+        return;
+    }
+
+    // Проверяем общее количество файлов
+    if (selectedFiles.length + files.length > MAX_FILES) {
+        alert(`Можно добавить не более ${MAX_FILES} файлов. У вас уже ${selectedFiles.length} файлов.`);
+        return;
+    }
+    
+    // Добавляем только новые, не дублирующиеся файлы
+    let newFilesAdded = 0;
+    files.forEach(file => {
+        if (!isFileDuplicate(file, selectedFiles) && selectedFiles.length + newFilesAdded < MAX_FILES) {
+            selectedFiles.push(file);
+            newFilesAdded++;
+        }
+    });
+    
+    // Обновляем превью только если были добавлены новые файлы
+    if (newFilesAdded > 0) {
+        updateMediaPreview();
+        
+        // Показываем модальное окно, если оно скрыто
+        if (mediaSendOverlay.classList.contains('hidden')) {
+            mediaSendOverlay.classList.remove('hidden');
+            mediaSendModal.classList.remove('hidden');
+        }
+        
+        // Обновляем заголовок
+        updateMediaTitle();
+    }
+    
+    // Сбрасываем значение input, чтобы можно было выбрать те же файлы снова
+    e.target.value = '';
+}
+
+
+function openFileSelector() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.setAttribute('multiple', 'multiple');
+        fileInput.click();
+    }
+}
+
+function openFileSelector() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.setAttribute('multiple', 'multiple');
+        fileInput.click();
+    }
+}
+
+
+async function sendZKMediaMessage(file, caption = '') {
+    if (!currentChatUserId || !userEncryptionKey) {
+        throw new Error('Система безопасности не инициализирована');
+    }
+    
+    try {
+        // Показываем индикатор загрузки
+        showMediaUploadProgress(`Шифрование: ${file.name}`, 10);
+        
+        // Ограничиваем размер файла
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        if (file.size > MAX_FILE_SIZE) {
+            hideMediaUploadProgress();
+            alert(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+            return false;
+        }
+        
+        console.log('Начало шифрования файла:', file.name, 'размер:', file.size);
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Шифрование: ${file.name}`, 30);
+        
+        // Шифруем файл с обработкой ошибок
+        let encryptedMediaData;
+        try {
+            encryptedMediaData = await zkCrypto.encryptFile(file, userEncryptionKey);
+        } catch (encryptError) {
+            console.error('Ошибка шифрования:', encryptError);
+            throw new Error(`Ошибка шифрования файла: ${encryptError.message}`);
+        }
+        
+        console.log('Файл зашифрован, отправка на сервер...');
+        
+        // Обновляем прогресс
+        updateMediaUploadProgress(`Отправка: ${file.name}`, 70);
+        
+        const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+        
+        const result = await eel.send_media_message(
+            localStorage.getItem('user_id'),
+            currentChatUserId,
+            encryptedMediaData,
+            fileType,
+            file.name,
+            caption
+        )();
+        
+        if (result.success) {
+            console.log('Файл успешно отправлен');
+            
+            // Добавляем сообщение в чат
+            const message = {
+                id: result.message_id,
+                sender_id: localStorage.getItem('user_id'),
+                receiver_id: currentChatUserId,
+                text: caption || (fileType === 'video' ? '[Видео]' : '[Фото]'),
+                timestamp: result.timestamp,
+                read: result.read,
+                isMedia: true,
+                mediaType: fileType,
+                is_encrypted: true
+            };
+            
+            await addMessageToChat(message, true, true);
+            lastMessageId = message.id;
+            
+            // Обновляем кеш активного чата
+            if (activeChats[currentChatUserId]) {
+                const messagesContainer = document.getElementById('chat-messages');
+                activeChats[currentChatUserId].messages = messagesContainer.innerHTML;
+                activeChats[currentChatUserId].lastMessageId = lastMessageId;
+                
+                if (!activeChats[currentChatUserId].messagesData) {
+                    activeChats[currentChatUserId].messagesData = [];
+                }
+                
+                activeChats[currentChatUserId].messagesData.push({
+                    id: message.id,
+                    isMedia: true,
+                    mediaType: fileType,
+                    text: message.text,
+                    filename: file.name
+                });
+            }
+            
+            // Обновляем последнее сообщение на карточке (только для первого файла)
+            if (selectedFiles.length > 0 && file === selectedFiles[0]) {
+                updateLastMessageOnUserCard(
+                    currentChatUserId, 
+                    selectedFiles.length > 1 ? `${selectedFiles.length} медиа` : (fileType === 'video' ? 'Видео' : 'Фото'), 
+                    true
+                );
+            }
+            
+            // Обновляем прогресс до 100% и скрываем
+            updateMediaUploadProgress(file.name, 100);
+            setTimeout(hideMediaUploadProgress, 1000);
+            
+            return true;
+        } else {
+            throw new Error(result.message || 'Ошибка при отправке файла');
+        }
+    } catch (error) {
+        console.error('Error sending ZK media message:', error);
+        hideMediaUploadProgress();
+        
+        if (error.message && error.message.includes('File too large')) {
+            alert('Файл слишком большой. Максимальный размер: 10MB');
+        } else if (error.message.includes('Maximum call stack')) {
+            alert('Файл слишком большой для обработки. Попробуйте файл меньшего размера.');
+        } else {
+            alert('Ошибка при отправке файла: ' + (error.message || 'Неизвестная ошибка'));
+        }
+        return false;
+    }
+}   
+
+
+mediaCancelButton.addEventListener('click', closeMediaModal);
+mediaSendOverlay.addEventListener('click', closeMediaModal);
+
+
+
+function closeMediaModal() {
+    const mediaSendOverlay = document.getElementById('media-send-overlay');
+    const mediaSendModal = document.getElementById('media-send-modal');
+    
+    if (mediaSendOverlay) mediaSendOverlay.classList.add('hidden');
+    if (mediaSendModal) mediaSendModal.classList.add('hidden');
+    
+    // Очищаем выбранные файлы
+    selectedFiles = [];
+    const mediaCaptionInput = document.getElementById('media-caption-input');
+    if (mediaCaptionInput) mediaCaptionInput.value = '';
+    
+    // Сбрасываем input file
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.removeAttribute('multiple');
+    }
+    
+    // Очищаем превью
+    const previewGrid = document.getElementById('media-preview-grid');
+    if (previewGrid) previewGrid.innerHTML = '';
+    
+    // Сбрасываем заголовок
+    const title = document.getElementById('media-send-title');
+    if (title) title.textContent = 'Отправить медиа';
+}
+
+
+function updateMediaPreview() {
+    const previewGrid = document.getElementById('media-preview-grid');
+    previewGrid.innerHTML = '';
+    
+    selectedFiles.forEach((file, index) => {
+        const previewItem = createPreviewItem(file, index);
+        previewGrid.appendChild(previewItem);
+    });
+    
+    // Обновляем индикатор количества
+    updateCountIndicator();
+}
+
+
+function createPreviewItem(file, index) {
+    const previewItem = document.createElement('div');
+    previewItem.className = 'media-preview-item';
+    previewItem.title = `${file.name} (${formatFileSize(file.size)})`;
+    
+    const isVideo = file.type.startsWith('video/');
+    const mediaType = isVideo ? 'video' : 'image';
+    
+    if (isVideo) {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.controls = false;
+        video.muted = true;
+        previewItem.appendChild(video);
+    } else {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        previewItem.appendChild(img);
+    }
+    
+    // Индикатор типа медиа
+    const typeIndicator = document.createElement('div');
+    typeIndicator.className = 'media-type-indicator';
+    typeIndicator.textContent = isVideo ? 'VIDEO' : 'IMG';
+    previewItem.appendChild(typeIndicator);
+    
+    // Кнопка удаления
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-media';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFile(index);
+    });
+    previewItem.appendChild(removeBtn);
+    
+    return previewItem;
+}
+
+
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    updateMediaPreview();
+    updateMediaTitle();
+}
+
+
+
+function updateMediaTitle() {
+    const title = document.getElementById('media-send-title');
+    const fileCount = selectedFiles.length;
+    
+    if (fileCount === 0) {
+        title.textContent = 'Отправить медиа';
+    } else {
+        const imageCount = selectedFiles.filter(f => f.type.startsWith('image/')).length;
+        const videoCount = selectedFiles.filter(f => f.type.startsWith('video/')).length;
+        
+        let typeText = '';
+        if (imageCount > 0 && videoCount > 0) {
+            typeText = `${imageCount} фото, ${videoCount} видео`;
+        } else if (imageCount > 0) {
+            typeText = `${imageCount} фото`;
+        } else if (videoCount > 0) {
+            typeText = `${videoCount} видео`;
+        }
+        
+        title.innerHTML = `Отправить медиа <span style="font-size: 14px; color: #666;">(${typeText})</span>`;
+    }
+}
+
+
+function updateCountIndicator() {
+    let countIndicator = document.getElementById('media-count-indicator');
+    
+    if (!countIndicator) {
+        countIndicator = document.createElement('div');
+        countIndicator.id = 'media-count-indicator';
+        countIndicator.className = 'media-count-indicator';
+        mediaSendModal.insertBefore(countIndicator, mediaSendModal.querySelector('.media-caption-input'));
+    }
+    
+    if (selectedFiles.length > 0) {
+        countIndicator.textContent = `Выбрано файлов: ${selectedFiles.length}/${MAX_FILES}`;
+        countIndicator.style.display = 'block';
+    } else {
+        countIndicator.style.display = 'none';
+    }
+}
+
+function isFileDuplicate(newFile, existingFiles) {
+    return existingFiles.some(existingFile => 
+        existingFile.name === newFile.name &&
+        existingFile.size === newFile.size &&
+        existingFile.type === newFile.type &&
+        existingFile.lastModified === newFile.lastModified
+    );
+}
+
+
+
+
+async function sendAllMedia() {
+    if (selectedFiles.length === 0) {
+        alert('Пожалуйста, выберите файлы для отправки');
+        return;
+    }
+    
+    const caption = document.getElementById('media-caption-input').value.trim();
+    
+    try {
+        // Показываем индикатор загрузки
+        showMediaUploadProgress(`Подготовка ${selectedFiles.length} файлов...`, 0);
+        
+        let successCount = 0;
+        let failedFiles = [];
+        
+        // Отправляем файлы последовательно с ограничением
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            
+            // Проверяем размер файла перед отправкой
+            if (file.size > 5 * 1024 * 1024) { // 5MB предупреждение
+                if (!confirm(`Файл "${file.name}" довольно большой (${(file.size / 1024 / 1024).toFixed(1)}MB). Продолжить отправку?`)) {
+                    failedFiles.push({file: file.name, reason: 'Пользователь отменил'});
+                    continue;
+                }
+            }
+            
+            // Передаем caption только для первого файла
+            const fileCaption = (i === 0 && caption) ? caption : '';
+            
+            console.log(`Отправка файла ${i + 1}/${selectedFiles.length}:`, file.name);
+            
+            // Обновляем прогресс
+            updateMediaUploadProgress(`Отправка: ${file.name} (${i + 1}/${selectedFiles.length})`, 
+                (i / selectedFiles.length) * 100);
+            
+            try {
+                const success = await sendZKMediaMessage(file, fileCaption);
+                if (success) {
+                    successCount++;
+                } else {
+                    failedFiles.push({file: file.name, reason: 'Ошибка отправки'});
+                }
+            } catch (error) {
+                console.error(`Ошибка отправки файла ${file.name}:`, error);
+                failedFiles.push({file: file.name, reason: error.message});
+            }
+            
+            // Задержка между отправками для уменьшения нагрузки
+            if (i < selectedFiles.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        hideMediaUploadProgress();
+        
+        // Показываем результаты отправки
+        if (successCount > 0) {
+            if (successCount === selectedFiles.length) {
+                alert(`✅ Все ${successCount} файлов успешно отправлены`);
+            } else {
+                let message = `✅ Отправлено ${successCount} из ${selectedFiles.length} файлов`;
+                if (failedFiles.length > 0) {
+                    message += `\n❌ Не отправлено: ${failedFiles.map(f => f.file).join(', ')}`;
+                }
+                alert(message);
+            }
+            closeMediaModal(); // ВАЖНО: закрываем модальное окно при успехе
+        } else {
+            let errorMessage = '❌ Не удалось отправить ни один файл';
+            if (failedFiles.length > 0) {
+                errorMessage += `\nПричины: ${failedFiles.map(f => `${f.file} (${f.reason})`).join(', ')}`;
+            }
+            alert(errorMessage);
+            // Не закрываем модальное окно при ошибке, чтобы пользователь мог попробовать снова
+        }
+        
+    } catch (error) {
+        console.error('Ошибка отправки файлов:', error);
+        hideMediaUploadProgress();
+        alert('Критическая ошибка при отправке файлов: ' + error.message);
+    }
+}
+
+
+function updateMediaUploadProgress(text, progress) {
+    const progressElement = document.getElementById('media-upload-progress');
+    if (progressElement) {
+        progressElement.querySelector('.media-upload-progress-text').textContent = text;
+        progressElement.querySelector('.media-upload-progress-fill').style.width = `${progress}%`;
+        progressElement.querySelector('.media-upload-progress-percent').textContent = `${Math.round(progress)}%`;
+    }
+}
+
+
+function hideMediaUploadProgress() {
+    const progressElement = document.getElementById('media-upload-progress');
+    if (progressElement) {
+        progressElement.style.display = 'none';
+        // Удаляем элемент через некоторое время
+        setTimeout(() => {
+            if (progressElement && progressElement.parentNode) {
+                progressElement.parentNode.removeChild(progressElement);
+            }
+        }, 1000);
+    }
+}
+
+async function loadMediaMessage(messageId, container, mediaType) {
+    try {
+        const response = await eel.get_media_message(messageId)();
+        if (response.success && userEncryptionKey) {
+            const decryptedData = await zkCrypto.decryptFile(response.encrypted_media_data, userEncryptionKey);
+            const blob = new Blob([decryptedData], { 
+                type: mediaType === 'image' ? 'image/jpeg' : 'video/mp4' 
+            });
+            
+            if (mediaType === 'image') {
+                const img = document.createElement('img');
+                img.className = 'media-preview';
+                img.src = URL.createObjectURL(blob);
+                img.alt = 'Фото';
+                img.addEventListener('click', () => openImageModal(img.src));
+                
+                container.innerHTML = '';
+                container.appendChild(img);
+            } else {
+                const video = document.createElement('video');
+                video.className = 'video-preview';
+                video.src = URL.createObjectURL(blob);
+                video.controls = true;
+                
+                container.innerHTML = '';
+                container.appendChild(video);
+            }
+            
+            return true;
+        }
+    } catch (error) {
+        console.error(`Error loading ${mediaType}:`, error);
+        container.innerHTML = `<div class="media-error">Ошибка загрузки ${mediaType}</div>`;
+        return false;
+    }
+}
+
+function openImageModal(imageSrc) {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalOverlay && imageModalImg) {
+        imageModalImg.src = imageSrc;
+        imageModalOverlay.classList.remove('hidden');
+    }
+}
+
+function closeImageModal() {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalOverlay) {
+        imageModalOverlay.classList.add('hidden');
+    }
+    if (imageModalImg) {
+        imageModalImg.src = '';
+    }
+}
+
+function initImageModal() {
+    const imageModalOverlay = document.getElementById('image-modal-overlay');
+    const imageModalClose = document.getElementById('image-modal-close');
+    const imageModalImg = document.getElementById('image-modal-img');
+    
+    if (imageModalClose) {
+        imageModalClose.addEventListener('click', closeImageModal);
+    }
+    
+    if (imageModalOverlay) {
+        imageModalOverlay.addEventListener('click', function(e) {
+            if (e.target === imageModalOverlay) {
+                closeImageModal();
+            }
+        });
+    }
+    
+    // Обработчик ESC для модального окна изображения
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !imageModalOverlay.classList.contains('hidden')) {
+            closeImageModal();
+        }
+    });
+}
+
+document.querySelectorAll('.photo-option').forEach(option => {
+    option.addEventListener('click', function() {
+        const type = this.dataset.type;
+        if (type === 'photo-video') {
+            openFileSelector();
+        } else {
+            alert(`Выбрана опция: ${this.querySelector('span').textContent}`);
+        }
+        photoOptionsMenu.classList.remove('show');
+    });
+});
+
+
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingStartTime = 0;
+let audioContext = null;
+let analyser = null;
+let visualizationInterval = null;
+let selectedFiles = [];
+const MAX_FILES = 16;
+let currentPlayingAudio = null;
+let voiceMessagePlaying = false;
+let currentPlayingVoiceElement = null;
+
+function sendMedia() {
+    if (selectedFiles.length === 0) {
+        alert('Пожалуйста, выберите файл');
+        return;
+    }
+    
+    const caption = mediaCaptionInput.value.trim();
+    const file = selectedFiles[0];
+    
+    console.log('Отправка файла:', file, 'с текстом:', caption);
+    
+    closeMediaModal();
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !mediaSendOverlay.classList.contains('hidden')) {
+        closeMediaModal();
+    }
+});
+
+
+
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+
+
+        window.addEventListener('beforeunload', function() {
+        stopVoiceMessage();
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+    });
