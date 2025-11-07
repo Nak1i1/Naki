@@ -178,7 +178,7 @@ body {
 	border-radius: 8px;
 	margin-bottom: 5px;
 	cursor: pointer;
-	transition: background-color 0.2s;
+	transition: background-color 0.3s ease;
 	background-color: white;
 }
 
@@ -239,7 +239,9 @@ body {
 	height: 150px;
 	opacity: 0.3;
 }
-
+.chat-container, .default-content {
+    transition: opacity 0.3s ease;
+}
 .chat-container {
 	display: flex;
 	flex-direction: column;
@@ -2297,4 +2299,28 @@ body {
 	text-align: center;
 	font-size: 14px;
 	color: #333;
+}
+
+/* Добавьте в style.css */
+.encryption-indicator {
+    color: #4CAF50;
+    font-size: 12px;
+    margin-left: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.encryption-indicator::before {
+    content: "🔒";
+    margin-right: 4px;
+}
+
+.encrypted-message {
+    border-left: 3px solid #4CAF50;
+}
+
+.encrypted-message .message-text::before {
+    content: "🔒 ";
+    font-size: 10px;
+    color: #4CAF50;
 }
