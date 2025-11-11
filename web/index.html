@@ -670,7 +670,7 @@ document.getElementById('message-input').addEventListener('keypress', async func
 				}
 			}
 
-			document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('=== DOMContentLoaded начат ===');
     const user_id = localStorage.getItem('user_id');
     console.log('User ID из localStorage:', user_id);
@@ -696,11 +696,22 @@ document.getElementById('message-input').addEventListener('keypress', async func
 
         // 1. ИНИЦИАЛИЗИРУЕМ СИСТЕМУ ШИФРОВАНИЯ ДЛЯ ПОЛЬЗОВАТЕЛЯ
         console.log('Инициализируем систему шифрования...');
-        const encryptionInit = await eel.initialize_user_encryption(user_id)();
+        
+        // Получаем пароль из sessionStorage
+        const userPassword = sessionStorage.getItem('user_password');
+        if (!userPassword) {
+            console.error('Пароль не найден в sessionStorage. Перенаправляем на вход.');
+            localStorage.removeItem('user_id');
+            window.location.href = 'login.html';
+            return;
+        }
+        
+        const encryptionInit = await eel.initialize_user_encryption(user_id, userPassword)();
         if (encryptionInit.success) {
             console.log('Система шифрования инициализирована');
         } else {
             console.warn('Не удалось инициализировать шифрование:', encryptionInit.message);
+            // Продолжаем работу даже если шифрование не инициализировано
         }
 
         // 2. Инициализация UI компонентов
@@ -757,6 +768,7 @@ document.getElementById('message-input').addEventListener('keypress', async func
         document.getElementById('logout-overlay')?.addEventListener('click', closeLogoutModal);
         document.getElementById('logout-confirm-btn')?.addEventListener('click', function() {
             localStorage.removeItem('user_id');
+            sessionStorage.removeItem('user_password'); // Очищаем пароль
             window.location.href = 'login.html';
         });
 
@@ -804,6 +816,7 @@ document.getElementById('message-input').addEventListener('keypress', async func
     } catch (error) {
         console.error('Ошибка инициализации приложения:', error);
         localStorage.removeItem('user_id');
+        sessionStorage.removeItem('user_password');
         window.location.href = 'login.html';
     }
 });
@@ -1072,7 +1085,7 @@ function hideEncryptionIndicator() {
     }
 }
 
-async function setupChatEncryption(userId) {
+async function setupChatEncryption(userId, password) {
     try {
         const user_id = localStorage.getItem('user_id');
         
@@ -1084,8 +1097,8 @@ async function setupChatEncryption(userId) {
             return true;
         }
         
-        // Если шифрование не настроено, настраиваем его
-        const result = await eel.setup_chat_encryption(user_id, userId)();
+        // Если шифрование не настроено, настраиваем его с паролем
+        const result = await eel.setup_chat_encryption(user_id, userId, password)();
         
         if (result.success) {
             console.log('Шифрование настроено для чата');
@@ -1167,7 +1180,14 @@ async function openChat(userId) {
 
         // Настраиваем шифрование для чата (если это не чат с самим собой)
         if (userId !== localStorage.getItem('user_id')) {
-            await setupChatEncryption(userId);
+            // Получаем пароль из sessionStorage
+            const userPassword = sessionStorage.getItem('user_password');
+            if (userPassword) {
+                await setupChatEncryption(userId, userPassword);
+            } else {
+                console.warn('Пароль не найден в sessionStorage, шифрование не настроено');
+                hideEncryptionIndicator();
+            }
             
             // ПОМЕЧАЕМ СООБЩЕНИЯ КАК ПРОЧИТАННЫЕ ПРИ ОТКРЫТИИ ЧАТА
             try {
@@ -1214,7 +1234,6 @@ async function openChat(userId) {
             '<div class="error-message">Ошибка загрузки данных пользователя</div>';
     }
 }
-
 // НОВАЯ ФУНКЦИЯ: Загрузка истории чата с дешифрованием
 async function loadChatHistoryWithDecryption(userId) {
     console.log('Загрузка истории чата с дешифрованием для:', userId);
@@ -2456,6 +2475,28 @@ async function establishSecureConnection(peer_id) {
         return false;
     }
 }
+
+async function debugEncryption() {
+    const user_id = localStorage.getItem('user_id');
+    const peer_id = currentChatUserId;
+    
+    if (!peer_id) {
+        console.error('Чат не открыт');
+        return;
+    }
+    
+    console.log('=== ОТЛАДКА ШИФРОВАНИЯ ===');
+    const status = await eel.debug_encryption_status(user_id, peer_id)();
+    console.log('Статус шифрования:', status);
+    
+    // Проверим, какой путь выбирает send_zk_message
+    const key_data = await eel.get_shared_key(user_id, peer_id)();
+    console.log('Общий ключ:', key_data);
+}
+
+// Вызовите эту функцию в консоли браузера после открытия чата
+
+
 
 async function sendEncryptedMessage(text) {
     if (!currentChatUserId || !encryptionEnabled) {
