@@ -453,7 +453,7 @@ def decrypt_message(user_id, message_id):
 
 @eel.expose
 def get_encrypted_chat_history(user_id, peer_id):
-    """Получение истории чата с автоматическим дешифрованием"""
+    """Получение истории зашифрованного чата (без дешифрования на сервере)"""
     try:
         messages = messages_collection.find({
             "$or": [
@@ -462,54 +462,72 @@ def get_encrypted_chat_history(user_id, peer_id):
             ]
         }).sort("timestamp", 1)
         
-        decrypted_messages = []
+        messages_list = []
         for message in messages:
-            if message.get('is_encrypted'):
-                # Дешифруем сообщение
-                decryption_result = decrypt_message(user_id, str(message['_id']))
-                if decryption_result['success']:
-                    message_data = {
-                        "id": str(message["_id"]),
-                        "sender_id": str(message["sender_id"]),
-                        "receiver_id": str(message["receiver_id"]),
-                        "text": decryption_result['plaintext'],
-                        "timestamp": message["timestamp"].isoformat(),
-                        "read": message.get("read", False),
-                        "is_encrypted": True
-                    }
-                else:
-                    message_data = {
-                        "id": str(message["_id"]),
-                        "sender_id": str(message["sender_id"]),
-                        "receiver_id": str(message["receiver_id"]),
-                        "text": "[Не удалось дешифровать]",
-                        "timestamp": message["timestamp"].isoformat(),
-                        "read": message.get("read", False),
-                        "is_encrypted": True,
-                        "decryption_error": True
-                    }
-            else:
-                # Обычное сообщение
-                message_data = {
-                    "id": str(message["_id"]),
-                    "sender_id": str(message["sender_id"]),
-                    "receiver_id": str(message["receiver_id"]),
-                    "text": message.get("text", ""),
-                    "timestamp": message["timestamp"].isoformat(),
-                    "read": message.get("read", False),
-                    "is_encrypted": False
-                }
+            # Проверяем, не удалено ли сообщение для текущего пользователя
+            deleted_for = message.get("deleted_for", [])
+            if ObjectId(user_id) in deleted_for:
+                continue
+                
+            message_data = {
+                "id": str(message["_id"]),
+                "sender_id": str(message["sender_id"]),
+                "receiver_id": str(message["receiver_id"]),
+                "timestamp": message["timestamp"].isoformat(),
+                "read": message.get("read", False),
+                "is_encrypted": message.get("is_encrypted", False)
+            }
             
-            decrypted_messages.append(message_data)
+            # Возвращаем зашифрованный текст как есть - дешифрование на клиенте
+            if message.get("is_encrypted"):
+                message_data["text"] = message.get("encrypted_text", "")
+            else:
+                message_data["text"] = message.get("text", "")
+            
+            messages_list.append(message_data)
         
         return {
             "success": True,
-            "messages": decrypted_messages
+            "messages": messages_list
         }
         
     except Exception as e:
         logger.error(f"Ошибка получения зашифрованной истории: {e}")
         return {"success": False, "message": str(e)}
+    
+
+
+@eel.expose
+def get_last_message_encrypted(user1_id, user2_id):
+    """Получение последнего сообщения (зашифрованного)"""
+    try:
+        message = messages_collection.find_one({
+            "$or": [
+                {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
+                {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
+            ],
+            "deleted_for": {"$ne": ObjectId(user1_id)}
+        }, sort=[("timestamp", -1)])
+        
+        if message:
+            # Для зашифрованных сообщений возвращаем специальный текст
+            if message.get('is_encrypted'):
+                text = "🔒 Зашифрованное сообщение"
+            else:
+                text = message.get("text", "[Сообщение]")
+            
+            return {
+                "text": text,
+                "sender_id": str(message["sender_id"]),
+                "timestamp": message["timestamp"].isoformat(),
+                "is_encrypted": message.get("is_encrypted", False)
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error getting last encrypted message: {e}")
+        return None
+    
+    
 @eel.expose
 def register_user(nickname, email, password):
     try:
@@ -581,61 +599,32 @@ def login_user(email, password):
         return {"success": False, "message": "Ошибка при входе в систему"}
 
 @eel.expose
-def send_encrypted_message_simple(sender_id, receiver_id, text, password):
-    """Упрощенная отправка зашифрованного сообщения"""
+def send_encrypted_message(sender_id, receiver_id, encrypted_text):
+    """Сохранение уже зашифрованного сообщения"""
     try:
-        # Получаем дешифрованный приватный ключ
-        private_key_result = get_decrypted_private_key(sender_id, password)
-        if not private_key_result['success']:
-            return private_key_result
+        # Для чата с самим собой сообщение сразу помечается как прочитанное
+        is_self_chat = sender_id == receiver_id
+        read_status = is_self_chat
         
-        # Загружаем приватный ключ
-        private_key = serialization.load_pem_private_key(
-            private_key_result['private_key'].encode(),
-            password=None
-        )
-        
-        # Получаем публичный ключ получателя
-        peer_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(receiver_id)})
-        if not peer_keys:
-            return {"success": False, "message": "Публичный ключ собеседника не найден"}
-        
-        peer_public_key = serialization.load_pem_public_key(
-            peer_keys['public_key'].encode()
-        )
-        
-        # Вычисляем общий секрет
-        shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-        derived_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=b'messenger_key'
-        ).derive(shared_secret)
-        
-        # Шифруем сообщение
-        nonce = os.urandom(12)
-        aesgcm = AESGCM(derived_key)
-        ciphertext = aesgcm.encrypt(nonce, text.encode('utf-8'), None)
-        
-        # Сохраняем сообщение
         result = messages_collection.insert_one({
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
-            "ciphertext": ciphertext.hex(),
-            "nonce": nonce.hex(),
+            "encrypted_text": encrypted_text,  # Храним уже зашифрованный текст
             "is_encrypted": True,
             "timestamp": datetime.utcnow(),
-            "read": False
+            "read": read_status
         })
         
+        logger.info(f"Зашифрованное сообщение сохранено от {sender_id} к {receiver_id}")
         return {
             "success": True,
-            "message_id": str(result.inserted_id)
+            "message_id": str(result.inserted_id),
+            "timestamp": datetime.utcnow().isoformat(),
+            "read": read_status
         }
         
     except Exception as e:
-        logger.error(f"Ошибка отправки сообщения: {e}")
+        logger.error(f"Ошибка сохранения зашифрованного сообщения: {e}")
         return {"success": False, "message": str(e)}
     
 @eel.expose
