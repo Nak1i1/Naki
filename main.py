@@ -599,23 +599,29 @@ def login_user(email, password):
         return {"success": False, "message": "Ошибка при входе в систему"}
 
 @eel.expose
-def send_encrypted_message(sender_id, receiver_id, encrypted_text):
-    """Сохранение уже зашифрованного сообщения"""
+def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_message_id=None):
+    """Сохранение уже зашифрованного сообщения с поддержкой ответов"""
     try:
         # Для чата с самим собой сообщение сразу помечается как прочитанное
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
-        result = messages_collection.insert_one({
+        message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
             "encrypted_text": encrypted_text,  # Храним уже зашифрованный текст
             "is_encrypted": True,
             "timestamp": datetime.utcnow(),
             "read": read_status
-        })
+        }
         
-        logger.info(f"Зашифрованное сообщение сохранено от {sender_id} к {receiver_id}")
+        # Добавляем информацию об ответе, если есть
+        if reply_to_message_id:
+            message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
+        
+        result = messages_collection.insert_one(message_data)
+        
+        logger.info(f"Зашифрованное сообщение сохранено от {sender_id} к {receiver_id}, ответ на: {reply_to_message_id}")
         return {
             "success": True,
             "message_id": str(result.inserted_id),
@@ -786,23 +792,29 @@ def send_zk_message(sender_id, receiver_id, text):
         return {"success": False, "message": str(e)}
     
 @eel.expose
-def send_message(sender_id, receiver_id, text):
-    """Отправка обычного незашифрованного сообщения"""
+def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
+    """Отправка обычного незашифрованного сообщения с поддержкой ответов"""
     try:
         # Для чата с самим собой сообщение сразу помечается как прочитанное
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
-        result = messages_collection.insert_one({
+        message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
             "text": text,
             "is_encrypted": False,
             "timestamp": datetime.utcnow(),
             "read": read_status  # Для чата с собой сразу прочитано
-        })
+        }
         
-        logger.info(f"Сообщение отправлено от {sender_id} к {receiver_id}, прочитано: {read_status}")
+        # Добавляем информацию об ответе, если есть
+        if reply_to_message_id:
+            message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
+        
+        result = messages_collection.insert_one(message_data)
+        
+        logger.info(f"Сообщение отправлено от {sender_id} к {receiver_id}, прочитано: {read_status}, ответ на: {reply_to_message_id}")
         return {
             "success": True,
             "message_id": str(result.inserted_id),

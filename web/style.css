@@ -1098,7 +1098,8 @@ body {
 }
 
 .message-input-container.expanded {
-	min-height: 120px;
+    min-height: 120px;
+    transition: min-height 0.3s ease;
 }
 
 .reply-container {
@@ -1150,15 +1151,21 @@ body {
 }
 
 .message.with-reply {
-	min-height: 100px;
+    border-left: 3px solid #4CAF50;
+    padding-left: 10px;
 }
 
 .reply-preview {
-	padding: 8px;
-	margin-bottom: 8px;
-	border-left: 3px solid #4caf50;
-	background-color: rgba(76, 175, 80, 0.1);
-	border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 8px;
+    border-left: 3px solid #4CAF50;
+    background-color: rgba(76, 175, 80, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.reply-preview:hover {
+    background-color: rgba(76, 175, 80, 0.15);
 }
 
 .reply-author {
@@ -1167,6 +1174,31 @@ body {
 	color: #4caf50;
 	margin-bottom: 4px;
 }
+
+.reply-preview .reply-author {
+    font-weight: bold;
+    font-size: 12px;
+    color: #4CAF50;
+    margin-bottom: 4px;
+}
+
+.reply-preview .reply-text {
+    font-size: 12px;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.my-message .reply-preview {
+    border-left-color: #2E7D32;
+    background-color: rgba(46, 125, 50, 0.1);
+}
+
+.my-message .reply-preview .reply-author {
+    color: #2E7D32;
+}
+
 
 .reply-text {
 	font-size: 12px;
