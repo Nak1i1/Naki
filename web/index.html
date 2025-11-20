@@ -1470,9 +1470,14 @@ async function openChat(userId) {
 async function loadSecureChatHistory(userId) {
     try {
         const user_id = localStorage.getItem('user_id');
-        // Используем функцию, которая возвращает сообщения с информацией об ответах
-        const messages = await eel.get_chat_messages_decrypted(user_id, userId)();
+        // Используем обновленную функцию, которая возвращает сообщения с информацией об ответах
+        const response = await eel.get_encrypted_chat_history(user_id, userId)();
         
+        if (!response.success) {
+            throw new Error(response.message);
+        }
+        
+        const messages = response.messages;
         console.log('Получено сообщений:', messages ? messages.length : 0);
 
         const messagesContainer = document.getElementById('chat-messages');
@@ -1501,6 +1506,16 @@ async function loadSecureChatHistory(userId) {
                     } catch (error) {
                         console.error('Ошибка дешифрования сообщения:', error);
                         displayText = '[Не удалось дешифровать сообщение]';
+                    }
+                }
+
+                // Если есть информация об ответе, дешифруем и её
+                if (msg.replied_message && msg.replied_message.is_encrypted) {
+                    try {
+                        msg.replied_message.text = await MessageEncryption.decryptMessage(msg.replied_message.text, userPassword);
+                    } catch (error) {
+                        console.error('Ошибка дешифрования ответного сообщения:', error);
+                        msg.replied_message.text = '[Не удалось дешифровать]';
                     }
                 }
 
@@ -1714,74 +1729,7 @@ async function loadSecureChatHistory(userId) {
 					console.error('Ошибка загрузки истории чата:', error)
 				}
 			}
-async function loadSecureChatHistory(userId) {
-    try {
-        const messages = await eel.get_encrypted_chat_history(
-            localStorage.getItem('user_id'),
-            userId
-        )();
-        
-        const userPassword = sessionStorage.getItem('user_password');
-        if (!userPassword) {
-            throw new Error('Пароль не найден');
-        }
-
-        const messagesContainer = document.getElementById('chat-messages');
-        messagesContainer.innerHTML = '';
-
-        if (messages.success && messages.messages.length > 0) {
-            let currentDateKey = null;
-
-            for (const msg of messages.messages) {
-                const isMyMessage = msg.sender_id === localStorage.getItem('user_id');
-                let displayText = msg.text;
-
-                // Дешифруем сообщение если оно зашифровано
-                if (msg.is_encrypted && msg.text) {
-                    try {
-                        displayText = await MessageEncryption.decryptMessage(msg.text, userPassword);
-                    } catch (error) {
-                        console.error('Decryption failed:', error);
-                        displayText = '[Не удалось дешифровать сообщение]';
-                    }
-                }
-
-                // Создаем объект сообщения с дешифрованным текстом
-                const messageObj = {
-                    ...msg,
-                    text: displayText
-                };
-
-                // Добавляем заголовок даты если нужно
-                const messageDate = new Date(msg.timestamp);
-                const messageDateKey = messageDate.toDateString();
-
-                if (messageDateKey !== currentDateKey) {
-                    const dateText = formatMessageDate(msg.timestamp);
-                    const dateHeader = createDateHeader(dateText, messageDateKey);
-                    messagesContainer.appendChild(dateHeader);
-                    dateHeaders.set(messageDateKey, dateHeader);
-                    currentDateKey = messageDateKey;
-                }
-
-                await addMessageToChat(messageObj, isMyMessage, false);
-            }
-
-            setTimeout(() => {
-                const messagesWrapper = document.getElementById('chat-messages-wrapper');
-                if (messagesWrapper) {
-                    messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
-                }
-            }, 0);
-        } else {
-            messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
-        }
-    } catch (error) {
-        console.error('Error loading secure chat history:', error);
-        document.getElementById('chat-messages').innerHTML = 
-            '<div class="error-message">Ошибка загрузки истории сообщений</div>';
-    }
-}
+ 
 
 			async function updateLastMessageOnUserCard(userId, messageText, isMyMessage) {
     const userCard = document.querySelector(`.user-bar[data-user-id="${userId}"]`);
@@ -1884,70 +1832,70 @@ async function addMessageToChat(message, isMyMessage, scrollToBottom = true) {
 
     // ЕСЛИ ЭТО ОТВЕТ НА СООБЩЕНИЕ - ДОБАВЛЯЕМ ПРЕВЬЮ ОТВЕТА
     if (message.reply_to_message_id || message.replied_message) {
-        const replyPreview = document.createElement('div');
-        replyPreview.className = 'reply-preview';
-        
-        let repliedText = '[Сообщение]';
-        let replyAuthor = 'Собеседник';
-        
-        // Используем уже расшифрованные данные из replied_message если они есть
-        if (message.replied_message && message.replied_message.text) {
-            repliedText = message.replied_message.text;
-            replyAuthor = message.replied_message.sender_id === localStorage.getItem('user_id') ? 'Вы' : document.getElementById('chat-username')?.textContent || 'Собеседник';
-        } 
-        // Иначе пытаемся получить и расшифровать данные сообщения
-        else if (message.reply_to_message_id) {
-            try {
-                const repliedMessage = await eel.get_message_data(message.reply_to_message_id)();
-                if (repliedMessage) {
-                    // Если сообщение зашифровано, расшифровываем его
-                    if (repliedMessage.is_encrypted) {
-                        try {
-                            const userPassword = sessionStorage.getItem('user_password');
-                            if (userPassword) {
-                                repliedText = await MessageEncryption.decryptMessage(repliedMessage.text, userPassword);
-                            } else {
-                                repliedText = '[Зашифрованное сообщение]';
-                            }
-                        } catch (decryptError) {
-                            console.error('Ошибка дешифрования ответного сообщения:', decryptError);
-                            repliedText = '[Не удалось расшифровать]';
+    const replyPreview = document.createElement('div');
+    replyPreview.className = 'reply-preview';
+    
+    let repliedText = '[Сообщение]';
+    let replyAuthor = 'Собеседник';
+    
+    // Используем уже расшифрованные данные из replied_message если они есть
+    if (message.replied_message && message.replied_message.text) {
+        repliedText = message.replied_message.text;
+        replyAuthor = message.replied_message.sender_id === localStorage.getItem('user_id') ? 'Вы' : document.getElementById('chat-username')?.textContent || 'Собеседник';
+    } 
+    // Иначе пытаемся получить и расшифровать данные сообщения
+    else if (message.reply_to_message_id) {
+        try {
+            const repliedMessage = await eel.get_message_data(message.reply_to_message_id)();
+            if (repliedMessage) {
+                // Если сообщение зашифровано, расшифровываем его
+                if (repliedMessage.is_encrypted) {
+                    try {
+                        const userPassword = sessionStorage.getItem('user_password');
+                        if (userPassword) {
+                            repliedText = await MessageEncryption.decryptMessage(repliedMessage.text, userPassword);
+                        } else {
+                            repliedText = '[Зашифрованное сообщение]';
                         }
-                    } else {
-                        repliedText = repliedMessage.text || '[Сообщение]';
+                    } catch (decryptError) {
+                        console.error('Ошибка дешифрования ответного сообщения:', decryptError);
+                        repliedText = '[Не удалось расшифровать]';
                     }
-                    
-                    replyAuthor = repliedMessage.sender_id === localStorage.getItem('user_id') ? 'Вы' : document.getElementById('chat-username')?.textContent || 'Собеседник';
+                } else {
+                    repliedText = repliedMessage.text || '[Сообщение]';
                 }
-            } catch (error) {
-                console.error('Ошибка получения данных ответа:', error);
-                repliedText = '[Не удалось загрузить]';
+                
+                replyAuthor = repliedMessage.sender_id === localStorage.getItem('user_id') ? 'Вы' : document.getElementById('chat-username')?.textContent || 'Собеседник';
             }
+        } catch (error) {
+            console.error('Ошибка получения данных ответа:', error);
+            repliedText = '[Не удалось загрузить]';
         }
-
-        // Обрезаем текст если слишком длинный
-        const displayRepliedText = repliedText.length > 50 ? repliedText.substring(0, 47) + '...' : repliedText;
-
-        replyPreview.innerHTML = `
-            <div class="reply-author">${replyAuthor}</div>
-            <div class="reply-text">${displayRepliedText}</div>
-        `;
-        
-        // Добавляем обработчик клика на превью ответа для быстрой навигации
-        replyPreview.addEventListener('click', function() {
-            const originalMessage = document.querySelector(`.message[data-id="${message.reply_to_message_id}"]`);
-            if (originalMessage) {
-                originalMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Добавляем подсветку на секунду
-                originalMessage.style.backgroundColor = isMyMessage ? '#c8e6c9' : '#1b5e20';
-                setTimeout(() => {
-                    originalMessage.style.backgroundColor = '';
-                }, 1000);
-            }
-        });
-
-        messageContent.appendChild(replyPreview);
     }
+
+    // Обрезаем текст если слишком длинный
+    const displayRepliedText = repliedText.length > 50 ? repliedText.substring(0, 47) + '...' : repliedText;
+
+    replyPreview.innerHTML = `
+        <div class="reply-author">${replyAuthor}</div>
+        <div class="reply-text">${displayRepliedText}</div>
+    `;
+    
+    // Добавляем обработчик клика на превью ответа для быстрой навигации
+    replyPreview.addEventListener('click', function() {
+        const originalMessage = document.querySelector(`.message[data-id="${message.reply_to_message_id}"]`);
+        if (originalMessage) {
+            originalMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Добавляем подсветку на секунду
+            originalMessage.style.backgroundColor = isMyMessage ? '#c8e6c9' : '#1b5e20';
+            setTimeout(() => {
+                originalMessage.style.backgroundColor = '';
+            }, 1000);
+        }
+    });
+
+    messageContent.appendChild(replyPreview);
+}
 
     const textElement = document.createElement('div');
     textElement.className = 'message-text';

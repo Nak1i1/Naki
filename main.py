@@ -82,6 +82,7 @@ for collection in collections:
 
 messages_collection.create_index([("sender_id", 1), ("receiver_id", 1)])
 messages_collection.create_index([("timestamp", 1)])
+messages_collection.create_index([("reply_to_message_id", 1)])
 
 try:
     users_collection.drop_index("email_1")
@@ -453,7 +454,7 @@ def decrypt_message(user_id, message_id):
 
 @eel.expose
 def get_encrypted_chat_history(user_id, peer_id):
-    """Получение истории зашифрованного чата (без дешифрования на сервере)"""
+    """Получение истории зашифрованного чата (с информацией об ответах)"""
     try:
         messages = messages_collection.find({
             "$or": [
@@ -478,6 +479,23 @@ def get_encrypted_chat_history(user_id, peer_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
+            # Добавляем информацию об ответе, если есть
+            if "reply_to_message_id" in message:
+                message_data["reply_to_message_id"] = str(message["reply_to_message_id"])
+                
+                # Получаем данные сообщения, на которое идет ответ
+                try:
+                    replied_message = messages_collection.find_one({"_id": message["reply_to_message_id"]})
+                    if replied_message:
+                        message_data["replied_message"] = {
+                            "id": str(replied_message["_id"]),
+                            "sender_id": str(replied_message["sender_id"]),
+                            "text": replied_message.get("text", replied_message.get("encrypted_text", "")),
+                            "is_encrypted": replied_message.get("is_encrypted", False)
+                        }
+                except Exception as e:
+                    logger.error(f"Ошибка получения данных ответного сообщения: {e}")
+            
             # Возвращаем зашифрованный текст как есть - дешифрование на клиенте
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "")
@@ -494,9 +512,6 @@ def get_encrypted_chat_history(user_id, peer_id):
     except Exception as e:
         logger.error(f"Ошибка получения зашифрованной истории: {e}")
         return {"success": False, "message": str(e)}
-    
-
-
  
     
     
@@ -797,7 +812,6 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         return {"success": False, "message": str(e)}
-    
     
 @eel.expose
 def get_chat_messages_decrypted(user_id, peer_id):
