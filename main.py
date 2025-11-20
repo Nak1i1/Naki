@@ -497,35 +497,7 @@ def get_encrypted_chat_history(user_id, peer_id):
     
 
 
-@eel.expose
-def get_last_message_encrypted(user1_id, user2_id):
-    """Получение последнего сообщения (зашифрованного)"""
-    try:
-        message = messages_collection.find_one({
-            "$or": [
-                {"sender_id": ObjectId(user1_id), "receiver_id": ObjectId(user2_id)},
-                {"sender_id": ObjectId(user2_id), "receiver_id": ObjectId(user1_id)}
-            ],
-            "deleted_for": {"$ne": ObjectId(user1_id)}
-        }, sort=[("timestamp", -1)])
-        
-        if message:
-            # Для зашифрованных сообщений возвращаем специальный текст
-            if message.get('is_encrypted'):
-                text = "🔒 Зашифрованное сообщение"
-            else:
-                text = message.get("text", "[Сообщение]")
-            
-            return {
-                "text": text,
-                "sender_id": str(message["sender_id"]),
-                "timestamp": message["timestamp"].isoformat(),
-                "is_encrypted": message.get("is_encrypted", False)
-            }
-        return None
-    except Exception as e:
-        logger.error(f"Error getting last encrypted message: {e}")
-        return None
+ 
     
     
 @eel.expose
@@ -854,15 +826,9 @@ def get_chat_messages_decrypted(user_id, peer_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            # Если сообщение зашифровано, пытаемся дешифровать
+            # Если сообщение зашифровано, возвращаем encrypted_text
             if message.get("is_encrypted"):
-                decryption_result = decrypt_message(user_id, str(message["_id"]))
-                if decryption_result["success"]:
-                    message_data["text"] = decryption_result["plaintext"]
-                else:
-                    message_data["text"] = "[Зашифрованное сообщение]"
-                    message_data["decryption_error"] = True
-                    logger.warning(f"Не удалось дешифровать сообщение {message['_id']}: {decryption_result['message']}")
+                message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
             else:
                 message_data["text"] = message.get("text", "")
             
@@ -1116,16 +1082,9 @@ def get_last_message(user1_id, user2_id):
         }, sort=[("timestamp", -1)])
         
         if message:
-            # Если сообщение зашифровано, пытаемся его дешифровать
+            # Если сообщение зашифровано, возвращаем специальный текст
             if message.get('is_encrypted'):
-                try:
-                    decryption_result = decrypt_message(user1_id, str(message['_id']))
-                    if decryption_result['success']:
-                        text = decryption_result['plaintext']
-                    else:
-                        text = "[Зашифрованное сообщение]"
-                except:
-                    text = "[Зашифрованное сообщение]"
+                text = "🔒 Зашифрованное сообщение"
             else:
                 text = message.get("text", "[Сообщение]")
             
@@ -1218,57 +1177,63 @@ def delete_message(message_id):
 
 @eel.expose
 def save_reply_state(user_id, chat_id, message_id):
+    """Сохранение состояния ответа для конкретного чата"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$set": {
-                "reply_states": {
-                    chat_id: {
-                        "message_id": message_id,
-                        "timestamp": datetime.utcnow()
-                    }
+                f"reply_states.{chat_id}": {
+                    "message_id": message_id,
+                    "timestamp": datetime.utcnow()
                 }
             }},
             upsert=True
         )
+        logger.info(f"Состояние ответа сохранено для пользователя {user_id}, чат {chat_id}")
         return {"success": True}
     except Exception as e:
         logger.error(f"Ошибка сохранения состояния ответа: {e}")
-        return {"success": False}
+        return {"success": False, "message": str(e)}
 
 @eel.expose
 def get_reply_state(user_id, chat_id):
+    """Получение состояния ответа для конкретного чата"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         if user and "reply_states" in user and chat_id in user["reply_states"]:
             reply_state = user["reply_states"][chat_id]
             
+            # Проверяем, не устарело ли состояние (больше 4 часов)
             if (datetime.utcnow() - reply_state["timestamp"]).total_seconds() > 4 * 3600:
+                # Удаляем устаревшее состояние
                 users_collection.update_one(
                     {"_id": ObjectId(user_id)},
                     {"$unset": {f"reply_states.{chat_id}": ""}}
                 )
-                return {"success": False}
+                return {"success": False, "message": "Состояние ответа устарело"}
+            
             return {
                 "success": True,
                 "message_id": reply_state["message_id"]
             }
-        return {"success": False}
+        return {"success": False, "message": "Состояние ответа не найдено"}
     except Exception as e:
         logger.error(f"Ошибка получения состояния ответа: {e}")
-        return {"success": False}
+        return {"success": False, "message": str(e)}
 
 @eel.expose
 def clear_reply_state(user_id, chat_id):
+    """Очистка состояния ответа для конкретного чата"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$unset": {f"reply_states.{chat_id}": ""}}
         )
+        logger.info(f"Состояние ответа очищено для пользователя {user_id}, чат {chat_id}")
         return {"success": True}
     except Exception as e:
         logger.error(f"Ошибка очистки состояния ответа: {e}")
-        return {"success": False}
+        return {"success": False, "message": str(e)}
 
 @eel.expose
 def save_draft_message(user_id, chat_id, text):
@@ -1368,12 +1333,20 @@ def get_message_data(message_id):
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message:
-            return {
+            message_data = {
                 "id": str(message["_id"]),
                 "sender_id": str(message["sender_id"]),
-                "text": message.get("text", "[Сообщение]"),
-                "timestamp": message["timestamp"].isoformat()
+                "timestamp": message["timestamp"].isoformat(),
+                "is_encrypted": message.get("is_encrypted", False)
             }
+            
+            # Для зашифрованных сообщений возвращаем encrypted_text
+            if message.get("is_encrypted"):
+                message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
+            else:
+                message_data["text"] = message.get("text", "[Сообщение]")
+                
+            return message_data
         return None
     except Exception as e:
         logger.error(f"Ошибка получения данных сообщения: {e}")
