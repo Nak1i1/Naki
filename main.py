@@ -109,11 +109,11 @@ eel.init("web")
 def generate_ecdh_keypair(user_id, password):
     """Генерация ECDH ключевой пары с шифрованием приватного ключа"""
     try:
-        # Генерируем приватный ключ
+        
         private_key = ec.generate_private_key(CURVE)
         public_key = private_key.public_key()
         
-        # Сериализуем ключи
+        
         private_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -125,10 +125,10 @@ def generate_ecdh_keypair(user_id, password):
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
         
-        # Шифруем приватный ключ
+        
         encrypted_private = encrypt_private_key(private_pem, password)
         
-        # Сохраняем в базу
+        
         ecdh_keys_collection.update_one(
             {"user_id": ObjectId(user_id)},
             {
@@ -189,35 +189,35 @@ def get_public_key(user_id):
 def compute_shared_secret(user_id, peer_public_key_pem):
     """Вычисление общего секрета между двумя пользователями"""
     try:
-        # Получаем приватный ключ текущего пользователя
+        
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data or 'private_key' not in key_data:
             return {"success": False, "message": "Приватный ключ не найден"}
         
-        # Загружаем приватный ключ
+        
         private_key = serialization.load_pem_private_key(
             key_data['private_key'].encode('utf-8'),
             password=None
         )
         
-        # Загружаем публичный ключ собеседника
+        
         peer_public_key = serialization.load_pem_public_key(
             peer_public_key_pem.encode('utf-8')
         )
         
-        # Вычисляем общий секрет
+        
         shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
         
-        # Производим ключ с помощью HKDF
+        
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
-            length=32,  # 256 бит для AES-256
+            length=32,  
             salt=None,
             info=HKDF_INFO
         ).derive(shared_secret)
         
-        # Сохраняем общий ключ в базе
-        # ВАЖНО: Нужно получить peer_id из базы данных по публичному ключу
+        
+        
         peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
         if not peer_key_data:
             return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
@@ -273,7 +273,7 @@ def encrypt_message(user_id, peer_id, plaintext):
     try:
         logger.info(f"Шифрование сообщения от {user_id} к {peer_id}")
         
-        # Получаем общий ключ из базы
+        
         key_data = shared_keys_collection.find_one({
             "$or": [
                 {"user_id": ObjectId(user_id), "peer_id": ObjectId(peer_id)},
@@ -287,23 +287,23 @@ def encrypt_message(user_id, peer_id, plaintext):
         
         logger.info(f"Общий ключ найден: {key_data['_id']}")
         
-        # Конвертируем ключ из hex
+        
         key = bytes.fromhex(key_data['shared_secret'])
         
-        # Генерируем случайный nonce (96 бит для AES-GCM)
+        
         nonce = os.urandom(12)
         
-        # Создаем AES-GCM объект
+        
         aesgcm = AESGCM(key)
         
-        # Шифруем сообщение
+        
         ciphertext = aesgcm.encrypt(nonce, plaintext.encode('utf-8'), None)
         
-        # Для чата с самим собой сообщение сразу помечается как прочитанное
+        
         is_self_chat = user_id == peer_id
         read_status = is_self_chat
         
-        # Сохраняем зашифрованное сообщение
+        
         result = messages_collection.insert_one({
             "sender_id": ObjectId(user_id),
             "receiver_id": ObjectId(peer_id),
@@ -333,11 +333,11 @@ def encrypt_message(user_id, peer_id, plaintext):
 def debug_encryption_status(user_id, peer_id):
     """Функция для отладки статуса шифрования"""
     try:
-        # Проверяем ECDH ключи
+        
         user_ecdh = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         peer_ecdh = ecdh_keys_collection.find_one({"user_id": ObjectId(peer_id)})
         
-        # Проверяем общий ключ
+        
         shared_key = shared_keys_collection.find_one({
             "$or": [
                 {"user_id": ObjectId(user_id), "peer_id": ObjectId(peer_id)},
@@ -398,30 +398,30 @@ def get_shared_key(user_id, peer_id):
 def decrypt_message(user_id, message_id):
     """Дешифрование сообщения с использованием общего ключа из базы"""
     try:
-        # Получаем сообщение
+        
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if not message:
             return {"success": False, "message": "Сообщение не найдено"}
         
-        # Проверяем, что сообщение зашифровано
+        
         if not message.get("is_encrypted", False):
             return {
                 "success": True,
                 "plaintext": message.get("text", "")
             }
         
-        # Определяем отправителя и получателя
+        
         sender_id = message['sender_id']
         receiver_id = message['receiver_id']
         
-        # Определяем, кто из участников чата является peer'ом для текущего пользователя
+        
         current_user_id = ObjectId(user_id)
         if current_user_id == sender_id:
             peer_id = receiver_id
         else:
             peer_id = sender_id
         
-        # Получаем общий ключ из базы (проверяем оба направления)
+        
         key_data = shared_keys_collection.find_one({
             "$or": [
                 {"user_id": current_user_id, "peer_id": ObjectId(peer_id)},
@@ -432,14 +432,14 @@ def decrypt_message(user_id, message_id):
         if not key_data:
             return {"success": False, "message": "Общий ключ не найден для этого чата"}
         
-        # Конвертируем ключ из hex
+        
         key = bytes.fromhex(key_data['shared_secret'])
         
-        # Получаем зашифрованные данные
+        
         ciphertext = bytes.fromhex(message['ciphertext'])
         nonce = bytes.fromhex(message['nonce'])
         
-        # Дешифруем сообщение
+        
         aesgcm = AESGCM(key)
         plaintext = aesgcm.decrypt(nonce, ciphertext, None)
         
@@ -465,7 +465,7 @@ def get_encrypted_chat_history(user_id, peer_id):
         
         messages_list = []
         for message in messages:
-            # Проверяем, не удалено ли сообщение для текущего пользователя
+            
             deleted_for = message.get("deleted_for", [])
             if ObjectId(user_id) in deleted_for:
                 continue
@@ -479,11 +479,11 @@ def get_encrypted_chat_history(user_id, peer_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            # Добавляем информацию об ответе, если есть
+            
             if "reply_to_message_id" in message:
                 message_data["reply_to_message_id"] = str(message["reply_to_message_id"])
                 
-                # Получаем данные сообщения, на которое идет ответ
+                
                 try:
                     replied_message = messages_collection.find_one({"_id": message["reply_to_message_id"]})
                     if replied_message:
@@ -496,7 +496,7 @@ def get_encrypted_chat_history(user_id, peer_id):
                 except Exception as e:
                     logger.error(f"Ошибка получения данных ответного сообщения: {e}")
             
-            # Возвращаем зашифрованный текст как есть - дешифрование на клиенте
+            
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "")
             else:
@@ -589,20 +589,20 @@ def login_user(email, password):
 def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_message_id=None):
     """Сохранение уже зашифрованного сообщения с поддержкой ответов"""
     try:
-        # Для чата с самим собой сообщение сразу помечается как прочитанное
+        
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
-            "encrypted_text": encrypted_text,  # Храним уже зашифрованный текст
+            "encrypted_text": encrypted_text,  
             "is_encrypted": True,
             "timestamp": datetime.utcnow(),
             "read": read_status
         }
         
-        # Добавляем информацию об ответе, если есть
+        
         if reply_to_message_id:
             message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
         
@@ -624,12 +624,12 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
 def initialize_user_encryption(user_id, password):
     """Инициализация шифрования для пользователя с паролем"""
     try:
-        # Проверяем, есть ли уже ключи
+        
         existing_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if existing_keys:
             return {"success": True, "message": "Ключи уже существуют"}
         
-        # Генерируем новую ключевую пару с переданным паролем
+        
         return generate_ecdh_keypair(user_id, password)
         
     except Exception as e:
@@ -641,12 +641,12 @@ def initialize_user_encryption(user_id, password):
 def setup_chat_encryption(user_id, peer_id, password):
     """Настройка шифрования для конкретного чата с использованием пароля"""
     try:
-        # Проверяем, есть ли ключи у обоих пользователей
+        
         user_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         peer_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(peer_id)})
         
         if not user_keys:
-            # Генерируем ключи для текущего пользователя с паролем
+            
             key_result = generate_ecdh_keypair(user_id, password)
             if not key_result['success']:
                 return {"success": False, "message": "Не удалось сгенерировать ключи"}
@@ -654,10 +654,10 @@ def setup_chat_encryption(user_id, peer_id, password):
         if not peer_keys:
             return {"success": False, "message": "У собеседника нет ключевой пары"}
         
-        # Получаем публичный ключ собеседника
+        
         peer_public_key = peer_keys['public_key']
         
-        # Вычисляем общий секрет
+        
         shared_secret_result = compute_shared_secret_with_password(user_id, peer_public_key, password)
         
         if shared_secret_result['success']:
@@ -676,31 +676,31 @@ def setup_chat_encryption(user_id, peer_id, password):
 def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
     """Вычисление общего секрета с использованием пароля для дешифрования приватного ключа"""
     try:
-        # Получаем зашифрованные данные приватного ключа
+        
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data:
             return {"success": False, "message": "Ключевая пара не найдена"}
         
-        # Дешифруем приватный ключ с использованием пароля
+        
         decryption_result = get_decrypted_private_key(user_id, password)
         if not decryption_result['success']:
             return decryption_result
         
-        # Загружаем приватный ключ
+        
         private_key = serialization.load_pem_private_key(
             decryption_result['private_key'].encode('utf-8'),
             password=None
         )
         
-        # Загружаем публичный ключ собеседника
+        
         peer_public_key = serialization.load_pem_public_key(
             peer_public_key_pem.encode('utf-8')
         )
         
-        # Вычисляем общий секрет
+        
         shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
         
-        # Производим ключ с помощью HKDF
+        
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
             length=32,
@@ -708,14 +708,14 @@ def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
             info=HKDF_INFO
         ).derive(shared_secret)
         
-        # Находим peer_id по публичному ключу
+        
         peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
         if not peer_key_data:
             return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
             
         peer_id = peer_key_data["user_id"]
         
-        # Сохраняем общий ключ в базе
+        
         shared_keys_collection.update_one(
             {
                 "user_id": ObjectId(user_id),
@@ -746,7 +746,7 @@ def send_zk_message(sender_id, receiver_id, text):
     try:
         logger.info(f"Отправка сообщения от {sender_id} к {receiver_id}")
         
-        # Проверяем, настроено ли шифрование для этого чата
+        
         key_data = shared_keys_collection.find_one({
             "$or": [
                 {"user_id": ObjectId(sender_id), "peer_id": ObjectId(receiver_id)},
@@ -757,7 +757,7 @@ def send_zk_message(sender_id, receiver_id, text):
         logger.info(f"Общий ключ найден: {'да' if key_data else 'нет'}")
         
         if key_data:
-            # ОТПРАВЛЯЕМ ЗАШИФРОВАННОЕ СООБЩЕНИЕ
+            
             logger.info("Отправка ЗАШИФРОВАННОГО сообщения")
             result = encrypt_message(sender_id, receiver_id, text)
             if result['success']:
@@ -767,7 +767,7 @@ def send_zk_message(sender_id, receiver_id, text):
                 logger.error(f"Ошибка шифрования: {result['message']}")
             return result
         else:
-            # Отправляем обычное сообщение
+            
             logger.info("Отправка обычного сообщения (шифрование не настроено)")
             result = send_message(sender_id, receiver_id, text)
             if result['success']:
@@ -782,7 +782,7 @@ def send_zk_message(sender_id, receiver_id, text):
 def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
     """Отправка обычного незашифрованного сообщения с поддержкой ответов"""
     try:
-        # Для чата с самим собой сообщение сразу помечается как прочитанное
+        
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
@@ -792,10 +792,10 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
             "text": text,
             "is_encrypted": False,
             "timestamp": datetime.utcnow(),
-            "read": read_status  # Для чата с собой сразу прочитано
+            "read": read_status  
         }
         
-        # Добавляем информацию об ответе, если есть
+        
         if reply_to_message_id:
             message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
         
@@ -826,10 +826,10 @@ def get_chat_messages_decrypted(user_id, peer_id):
         
         messages_list = []
         for message in messages:
-            # Проверяем, не удалено ли сообщение для текущего пользователя
+            
             deleted_for = message.get("deleted_for", [])
             if ObjectId(user_id) in deleted_for:
-                continue  # Пропускаем сообщения, удаленные для этого пользователя
+                continue  
                 
             message_data = {
                 "id": str(message["_id"]),
@@ -840,7 +840,7 @@ def get_chat_messages_decrypted(user_id, peer_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            # Если сообщение зашифровано, возвращаем encrypted_text
+            
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
             else:
@@ -879,7 +879,7 @@ def check_chat_encryption_status(user_id, peer_id):
 def establish_secure_connection(user_id, peer_id, password):
     """Установка безопасного соединения между пользователями с использованием пароля"""
     try:
-        # Генерируем ключи если их нет
+        
         user_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not user_keys:
             generate_ecdh_keypair(user_id, password)
@@ -888,10 +888,10 @@ def establish_secure_connection(user_id, peer_id, password):
         if not peer_keys:
             return {"success": False, "message": "У собеседника нет ключевой пары"}
         
-        # Получаем публичный ключ собеседника
+        
         peer_public_key = peer_keys['public_key']
         
-        # Вычисляем общий секрет с использованием пароля
+        
         result = compute_shared_secret_with_password(user_id, peer_public_key, password)
         
         if result['success']:
@@ -1096,7 +1096,7 @@ def get_last_message(user1_id, user2_id):
         }, sort=[("timestamp", -1)])
         
         if message:
-            # Если сообщение зашифровано, возвращаем специальный текст
+            
             if message.get('is_encrypted'):
                 text = "🔒 Зашифрованное сообщение"
             else:
@@ -1217,9 +1217,9 @@ def get_reply_state(user_id, chat_id):
         if user and "reply_states" in user and chat_id in user["reply_states"]:
             reply_state = user["reply_states"][chat_id]
             
-            # Проверяем, не устарело ли состояние (больше 4 часов)
+            
             if (datetime.utcnow() - reply_state["timestamp"]).total_seconds() > 4 * 3600:
-                # Удаляем устаревшее состояние
+                
                 users_collection.update_one(
                     {"_id": ObjectId(user_id)},
                     {"$unset": {f"reply_states.{chat_id}": ""}}
@@ -1354,7 +1354,7 @@ def get_message_data(message_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            # Для зашифрованных сообщений возвращаем encrypted_text
+            
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
             else:

@@ -239,8 +239,9 @@ body {
 	height: 150px;
 	opacity: 0.3;
 }
-.chat-container, .default-content {
-    transition: opacity 0.3s ease;
+.chat-container,
+.default-content {
+	transition: opacity 0.3s ease;
 }
 .chat-container {
 	display: flex;
@@ -1098,8 +1099,8 @@ body {
 }
 
 .message-input-container.expanded {
-    min-height: 120px;
-    transition: min-height 0.3s ease;
+	min-height: 120px;
+	transition: min-height 0.3s ease;
 }
 
 .reply-container {
@@ -1151,21 +1152,21 @@ body {
 }
 
 .message.with-reply {
-    border-left: 3px solid #4CAF50;
-    padding-left: 10px;
+	border-left: 3px solid #4caf50;
+	padding-left: 10px;
 }
 
 .reply-preview {
-    padding: 8px;
-    margin-bottom: 8px;
-    border-left: 3px solid #4CAF50;
-    background-color: rgba(76, 175, 80, 0.1);
-    border-radius: 4px;
-    cursor: pointer;
+	padding: 8px;
+	margin-bottom: 8px;
+	border-left: 3px solid #4caf50;
+	background-color: rgba(76, 175, 80, 0.1);
+	border-radius: 4px;
+	cursor: pointer;
 }
 
 .reply-preview:hover {
-    background-color: rgba(76, 175, 80, 0.15);
+	background-color: rgba(76, 175, 80, 0.15);
 }
 
 .reply-author {
@@ -1176,29 +1177,28 @@ body {
 }
 
 .reply-preview .reply-author {
-    font-weight: bold;
-    font-size: 12px;
-    color: #4CAF50;
-    margin-bottom: 4px;
+	font-weight: bold;
+	font-size: 12px;
+	color: #4caf50;
+	margin-bottom: 4px;
 }
 
 .reply-preview .reply-text {
-    font-size: 12px;
-    color: #666;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+	font-size: 12px;
+	color: #666;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .my-message .reply-preview {
-    border-left-color: #2E7D32;
-    background-color: rgba(46, 125, 50, 0.1);
+	border-left-color: #2e7d32;
+	background-color: rgba(46, 125, 50, 0.1);
 }
 
 .my-message .reply-preview .reply-author {
-    color: #2E7D32;
+	color: #2e7d32;
 }
-
 
 .reply-text {
 	font-size: 12px;
@@ -2335,24 +2335,24 @@ body {
 
 /* Добавьте в style.css */
 .encryption-indicator {
-    color: #4CAF50;
-    font-size: 12px;
-    margin-left: 10px;
-    display: flex;
-    align-items: center;
+	color: #4caf50;
+	font-size: 12px;
+	margin-left: 10px;
+	display: flex;
+	align-items: center;
 }
 
 .encryption-indicator::before {
-    content: "🔒";
-    margin-right: 4px;
+	content: '🔒';
+	margin-right: 4px;
 }
 
 .encrypted-message {
-    border-left: 3px solid #4CAF50;
+	border-left: 3px solid #4caf50;
 }
 
 .encrypted-message .message-text::before {
-    content: "🔒 ";
-    font-size: 10px;
-    color: #4CAF50;
+	content: '🔒 ';
+	font-size: 10px;
+	color: #4caf50;
 }

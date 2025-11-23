@@ -103,8 +103,6 @@
 					.getElementById('register-btn')
 					.addEventListener('click', register)
 				document.getElementById('login-btn').addEventListener('click', login)
-
-				// Добавляем обработчики для Enter
 				document
 					.getElementById('reg-password')
 					.addEventListener('keypress', function (e) {
@@ -118,100 +116,95 @@
 					})
 
 				async function register() {
-    const nickname = document.getElementById('reg-nickname').value.trim()
-    const email = document.getElementById('reg-email').value.trim()
-    const password = document.getElementById('reg-password').value.trim()
+					const nickname = document.getElementById('reg-nickname').value.trim()
+					const email = document.getElementById('reg-email').value.trim()
+					const password = document.getElementById('reg-password').value.trim()
 
-    if (!nickname || !email || !password) {
-        showMessage('Все поля обязательны для заполнения', 'error')
-        return
-    }
+					if (!nickname || !email || !password) {
+						showMessage('Все поля обязательны для заполнения', 'error')
+						return
+					}
 
-    if (password.length < 6) {
-        showMessage('Пароль должен содержать минимум 6 символов', 'error')
-        return
-    }
+					if (password.length < 6) {
+						showMessage('Пароль должен содержать минимум 6 символов', 'error')
+						return
+					}
 
-    if (nickname.length < 2) {
-        showMessage('Никнейм должен содержать минимум 2 символа', 'error')
-        return
-    }
+					if (nickname.length < 2) {
+						showMessage('Никнейм должен содержать минимум 2 символа', 'error')
+						return
+					}
 
-    try {
-        showMessage('Регистрация...', 'success')
-        const response = await eel.register_user(nickname, email, password)()
-        showMessage(
-            response.message,
-            response.success ? 'success' : 'error'
-        )
+					try {
+						showMessage('Регистрация...', 'success')
+						const response = await eel.register_user(
+							nickname,
+							email,
+							password
+						)()
+						showMessage(
+							response.message,
+							response.success ? 'success' : 'error'
+						)
 
-        if (response.success) {
-            // После успешной регистрации автоматически входим
-            const loginResponse = await eel.login_user(email, password)()
-            if (loginResponse.success) {
-                localStorage.setItem('user_id', loginResponse.user_id)
-                
-                // ВАЖНО: Сохраняем пароль для шифрования
-                sessionStorage.setItem('user_password', password)
+						if (response.success) {
+							const loginResponse = await eel.login_user(email, password)()
+							if (loginResponse.success) {
+								localStorage.setItem('user_id', loginResponse.user_id)
+								sessionStorage.setItem('user_password', password)
+								if (loginResponse.salt) {
+									localStorage.setItem('user_salt', loginResponse.salt)
+								}
 
-                // Сохраняем соль для ZK системы
-                if (loginResponse.salt) {
-                    localStorage.setItem('user_salt', loginResponse.salt)
-                }
+								showMessage(
+									`Добро пожаловать, ${loginResponse.nickname}!`,
+									'success'
+								)
+								setTimeout(() => {
+									window.location.href = 'index.html'
+								}, 1500)
+							}
+						}
+					} catch (error) {
+						showMessage('Ошибка соединения с сервером', 'error')
+						console.error('Registration error:', error)
+					}
+				}
 
-                showMessage(
-                    `Добро пожаловать, ${loginResponse.nickname}!`,
-                    'success'
-                )
+				async function login() {
+					const email = document.getElementById('login-email').value.trim()
+					const password = document
+						.getElementById('login-password')
+						.value.trim()
 
-                // Переходим в мессенджер
-                setTimeout(() => {
-                    window.location.href = 'index.html'
-                }, 1500)
-            }
-        }
-    } catch (error) {
-        showMessage('Ошибка соединения с сервером', 'error')
-        console.error('Registration error:', error)
-    }
-}
+					if (!email || !password) {
+						showMessage('Поля email и пароль обязательны', 'error')
+						return
+					}
 
-async function login() {
-    const email = document.getElementById('login-email').value.trim()
-    const password = document.getElementById('login-password').value.trim()
+					try {
+						showMessage('Вход...', 'success')
+						const response = await eel.login_user(email, password)()
+						if (response.success) {
+							showMessage(`Добро пожаловать, ${response.nickname}!`, 'success')
+							localStorage.setItem('user_id', response.user_id)
+							sessionStorage.setItem('user_password', password)
+							if (response.salt) {
+								localStorage.setItem('user_salt', response.salt)
+							}
 
-    if (!email || !password) {
-        showMessage('Поля email и пароль обязательны', 'error')
-        return
-    }
-
-    try {
-        showMessage('Вход...', 'success')
-        const response = await eel.login_user(email, password)()
-        if (response.success) {
-            showMessage(`Добро пожаловать, ${response.nickname}!`, 'success')
-            localStorage.setItem('user_id', response.user_id)
-            
-            // ВАЖНО: Сохраняем пароль для шифрования
-            sessionStorage.setItem('user_password', password)
-            
-            // Сохраняем соль для ZK системы
-            if (response.salt) {
-                localStorage.setItem('user_salt', response.salt)
-            }
-
-            setTimeout(() => {
-                window.location.href = 'index.html'
-            }, 1000)
-        } else {
-            showMessage(response.message, 'error')
-        }
-    } catch (error) {
-        showMessage('Ошибка соединения с сервером', 'error')
-        console.error('Login error:', error)
-    }
-}
+							setTimeout(() => {
+								window.location.href = 'index.html'
+							}, 1000)
+						} else {
+							showMessage(response.message, 'error')
+						}
+					} catch (error) {
+						showMessage('Ошибка соединения с сервером', 'error')
+						console.error('Login error:', error)
+					}
+				}
 			})
 		</script>
 	</body>
-</html>	
+</html>
