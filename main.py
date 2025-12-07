@@ -1096,8 +1096,8 @@ def get_last_message(user1_id, user2_id):
         }, sort=[("timestamp", -1)])
         
         if message:
-            
-            if message.get('is_encrypted'):
+             
+            if message.get('is_encrypted', False):
                 text = "🔒 Зашифрованное сообщение"
             else:
                 text = message.get("text", "[Сообщение]")
@@ -1112,7 +1112,6 @@ def get_last_message(user1_id, user2_id):
     except Exception as e:
         logger.error(f"Error getting last message: {e}")
         return None
-
 @eel.expose
 def edit_message(message_id, new_text):
     try:

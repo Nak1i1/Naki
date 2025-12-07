@@ -602,22 +602,89 @@
 			}
 
 			function formatMessageTime(timestamp) {
-				try {
-					const date = new Date(timestamp)
-					const userTime = new Date(
-						date.getTime() - date.getTimezoneOffset() * 60000
-					)
+    try {
+         
+        const date = new Date(timestamp);
+        
+        return date.toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch (error) {
+        console.error('Ошибка форматирования времени:', error);
+        return '--:--';
+    }
+}
 
-					return userTime.toLocaleTimeString('ru-RU', {
-						hour: '2-digit',
-						minute: '2-digit',
-					})
-				} catch (error) {
-					console.error('Ошибка форматирования времени:', error)
-					return '--:--'
-				}
-			}
 
+async function decryptLastMessageForAllUsers() {
+    try {
+        const user_id = localStorage.getItem('user_id');
+        const userPassword = sessionStorage.getItem('user_password');
+        
+        if (!user_id || !userPassword) {
+            console.warn('Не хватает данных для дешифрования');
+            return;
+        }
+        
+         
+        const userData = await eel.get_user_data(user_id)();
+        if (!userData || !userData.friends || userData.friends.length === 0) {
+            return;
+        }
+        
+        console.log('Начинаем дешифрование последних сообщений для всех друзей...');
+        
+         
+        for (const friendId of userData.friends) {
+            try {
+                
+                const lastMessage = await eel.get_last_message(user_id, friendId)();
+                
+                if (lastMessage && lastMessage.is_encrypted) {
+                    
+                    const chatHistory = await eel.get_encrypted_chat_history(user_id, friendId)();
+                    
+                    if (chatHistory.success && chatHistory.messages && chatHistory.messages.length > 0) {
+                        
+                        const lastMsg = chatHistory.messages[chatHistory.messages.length - 1];
+                        
+                        if (lastMsg.is_encrypted && lastMsg.text) {
+                            try {
+                                
+                                const decryptedText = await MessageEncryption.decryptMessage(
+                                    lastMsg.text,
+                                    userPassword
+                                );
+                                
+                                 
+                                updateLastMessageOnUserCard(friendId, decryptedText, lastMsg.sender_id === user_id);
+                                
+                                console.log(`Сообщение дешифровано для пользователя ${friendId}`);
+                            } catch (decryptError) {
+                                console.error(`Ошибка дешифрования для ${friendId}:`, decryptError);
+                                updateLastMessageOnUserCard(friendId, '🔒 Зашифрованное сообщение', false);
+                            }
+                        }
+                    }
+                } else if (lastMessage) {
+                     
+                    updateLastMessageOnUserCard(
+                        friendId, 
+                        lastMessage.text, 
+                        lastMessage.sender_id === user_id
+                    );
+                }
+            } catch (friendError) {
+                console.error(`Ошибка обработки друга ${friendId}:`, friendError);
+            }
+        }
+        
+        console.log('Дешифрование последних сообщений завершено');
+    } catch (error) {
+        console.error('Ошибка при дешифровании последних сообщений:', error);
+    }
+}
 			async function updateLastMessageAfterDelete(chatUserId) {
 				try {
 					const lastMessage = await eel.get_last_message(
@@ -810,125 +877,138 @@
 			}
 
 			document.addEventListener('DOMContentLoaded', async function () {
-				console.log('=== DOMContentLoaded начат ===')
-				const user_id = localStorage.getItem('user_id')
-				console.log('User ID из localStorage:', user_id)
+    console.log('=== DOMContentLoaded начат ===');
+    const user_id = localStorage.getItem('user_id');
+    console.log('User ID из localStorage:', user_id);
 
-				if (!user_id) {
-					console.log('User ID не найден, перенаправляем на login')
-					window.location.href = 'login.html'
-					return
-				}
+    if (!user_id) {
+        console.log('User ID не найден, перенаправляем на login');
+        window.location.href = 'login.html';
+        return;
+    }
 
-				try {
-					console.log('Загружаем данные пользователя...')
-					currentUser = await eel.get_user_data(user_id)()
-					console.log('Данные пользователя загружены:', currentUser)
+    try {
+        console.log('Загружаем данные пользователя...');
+        currentUser = await eel.get_user_data(user_id)();
+        console.log('Данные пользователя загружены:', currentUser);
 
-					if (!currentUser) {
-						console.error('Пользователь не найден в базе данных')
-						localStorage.removeItem('user_id')
-						window.location.href = 'login.html'
-						return
-					}
-					console.log('Инициализируем систему шифрования...')
-					const userPassword = sessionStorage.getItem('user_password')
-					if (!userPassword) {
-						console.error(
-							'Пароль не найден в sessionStorage. Перенаправляем на вход.'
-						)
-						localStorage.removeItem('user_id')
-						window.location.href = 'login.html'
-						return
-					}
+        if (!currentUser) {
+            console.error('Пользователь не найден в базе данных');
+            localStorage.removeItem('user_id');
+            window.location.href = 'login.html';
+            return;
+        }
+        
+        console.log('Инициализируем систему шифрования...');
+        const userPassword = sessionStorage.getItem('user_password');
+        if (!userPassword) {
+            console.error('Пароль не найден в sessionStorage. Перенаправляем на вход.');
+            localStorage.removeItem('user_id');
+            window.location.href = 'login.html';
+            return;
+        }
 
-					const encryptionInit = await eel.initialize_user_encryption(
-						user_id,
-						userPassword
-					)()
-					if (encryptionInit.success) {
-						console.log('Система шифрования инициализирована')
-					} else {
-						console.warn(
-							'Не удалось инициализировать шифрование:',
-							encryptionInit.message
-						)
-					}
-					console.log('Инициализация UI компонентов...')
-					initCustomScroll()
-					initImageModal()
-					document.getElementById('top-avatar').style.backgroundImage =
-						'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)'
-					const searchInput = document.querySelector('.search-input')
-					const clearBtn = document.querySelector('.clear-btn')
+        const encryptionInit = await eel.initialize_user_encryption(
+            user_id,
+            userPassword
+        )();
+        if (encryptionInit.success) {
+            console.log('Система шифрования инициализирована');
+        } else {
+            console.warn(
+                'Не удалось инициализировать шифрование:',
+                encryptionInit.message
+            );
+        }
+        
+        console.log('Инициализация UI компонентов...');
+        initCustomScroll();
+        initImageModal();
+        
+        document.getElementById('top-avatar').style.backgroundImage =
+            'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
+        
+        const searchInput = document.querySelector('.search-input');
+        const clearBtn = document.querySelector('.clear-btn');
 
-					if (searchInput && clearBtn) {
-						searchInput.addEventListener('input', async function () {
-							const searchTerm = this.value.trim()
-							if (searchTerm.length > 0) {
-								const users = await eel.search_users(searchTerm, user_id)()
-								displaySearchResults(users)
-							} else {
-								loadFriends()
-							}
-						})
+        if (searchInput && clearBtn) {
+            searchInput.addEventListener('input', async function () {
+                const searchTerm = this.value.trim();
+                if (searchTerm.length > 0) {
+                    const users = await eel.search_users(searchTerm, user_id)();
+                    displaySearchResults(users);
+                } else {
+                    loadFriends();
+                }
+            });
 
-						clearBtn.addEventListener('click', function () {
-							searchInput.value = ''
-							searchInput.focus()
-							loadFriends()
-						})
-					}
-					contextMenu = document.getElementById('context-menu')
-					if (contextMenu) {
-						document.addEventListener('click', closeContextMenu)
-						document
-							.getElementById('context-menu-add')
-							.addEventListener('click', handleAddFriend)
-						document
-							.getElementById('context-menu-remove')
-							.addEventListener('click', handleRemoveFriend)
-					}
-					const menuIcon = document.querySelector('.menu-icon')
-					if (menuIcon) {
-						menuIcon.addEventListener('click', function () {
-							document
-								.getElementById('logout-overlay')
-								.classList.remove('hidden')
-							document.getElementById('logout-modal').classList.remove('hidden')
-						})
-					}
-					document
-						.getElementById('logout-close-btn')
-						?.addEventListener('click', closeLogoutModal)
-					document
-						.getElementById('logout-cancel-btn')
-						?.addEventListener('click', closeLogoutModal)
-					document
-						.getElementById('logout-overlay')
-						?.addEventListener('click', closeLogoutModal)
-					document
-						.getElementById('logout-confirm-btn')
-						?.addEventListener('click', function () {
-							localStorage.removeItem('user_id')
-							sessionStorage.removeItem('user_password') 
-							window.location.href = 'login.html'
-						})
-					startOnlineStatusUpdates()
-					console.log('Загружаем список друзей...')
-					await loadFriends()
-					initMessageContextMenu()
-					setTimeout(initButtonHandlers, 1000)
+            clearBtn.addEventListener('click', function () {
+                searchInput.value = '';
+                searchInput.focus();
+                loadFriends();
+            });
+        }
+        
+        contextMenu = document.getElementById('context-menu');
+        if (contextMenu) {
+            document.addEventListener('click', closeContextMenu);
+            document
+                .getElementById('context-menu-add')
+                .addEventListener('click', handleAddFriend);
+            document
+                .getElementById('context-menu-remove')
+                .addEventListener('click', handleRemoveFriend);
+        }
+        
+        const menuIcon = document.querySelector('.menu-icon');
+        if (menuIcon) {
+            menuIcon.addEventListener('click', function () {
+                document
+                    .getElementById('logout-overlay')
+                    .classList.remove('hidden');
+                document.getElementById('logout-modal').classList.remove('hidden');
+            });
+        }
+        
+        document
+            .getElementById('logout-close-btn')
+            ?.addEventListener('click', closeLogoutModal);
+        document
+            .getElementById('logout-cancel-btn')
+            ?.addEventListener('click', closeLogoutModal);
+        document
+            .getElementById('logout-overlay')
+            ?.addEventListener('click', closeLogoutModal);
+        document
+            .getElementById('logout-confirm-btn')
+            ?.addEventListener('click', function () {
+                localStorage.removeItem('user_id');
+                sessionStorage.removeItem('user_password');
+                window.location.href = 'login.html';
+            });
+        
+        startOnlineStatusUpdates();
+        console.log('Загружаем список друзей...');
+        await loadFriends();
+        
+        
+        setTimeout(async () => {
+            console.log('Начинаем дешифрование всех последних сообщений...');
+            await decryptLastMessageForAllUsers();
+        }, 1000);
+        
+        initMessageContextMenu();
+        setTimeout(initButtonHandlers, 1000);
 
-					console.log('=== Приложение инициализировано успешно ===')
-					console.log('Система шифрования готова к работе')
-				} catch (error) {
-					console.error('Ошибка инициализации приложения:', error)
-					localStorage.removeItem('user_id')
-					sessionStorage.removeItem('user_password')
-					window.location.href = 'login.html'
-				}
-			})
+        console.log('=== Приложение инициализировано успешно ===');
+        console.log('Система шифрования готова к работе');
+    } catch (error) {
+        console.error('Ошибка инициализации приложения:', error);
+        localStorage.removeItem('user_id');
+        sessionStorage.removeItem('user_password');
+        window.location.href = 'login.html';
+    }
+});
 			document
 				.getElementById('message-input')
 				.addEventListener('keypress', async function (e) {
@@ -1238,221 +1318,212 @@
 			}
 
 			async function openChat(userId) {
-				console.log('Открываем чат с пользователем:', userId)
-				if (
-					currentChatUserId === userId &&
-					!document
-						.getElementById('chat-container')
-						.classList.contains('hidden')
-				) {
-					const messagesWrapper = document.getElementById(
-						'chat-messages-wrapper'
-					)
-					if (messagesWrapper) {
-						messagesWrapper.scrollTop =
-							scrollPositions[userId] || messagesWrapper.scrollHeight
-					}
-					return
-				}
-				if (currentChatUserId) {
-					const messagesWrapper = document.getElementById(
-						'chat-messages-wrapper'
-					)
-					if (messagesWrapper) {
-						scrollPositions[currentChatUserId] = messagesWrapper.scrollTop
-					}
+    console.log('Открываем чат с пользователем:', userId)
+    if (
+        currentChatUserId === userId &&
+        !document
+            .getElementById('chat-container')
+            .classList.contains('hidden')
+    ) {
+        const messagesWrapper = document.getElementById(
+            'chat-messages-wrapper'
+        )
+        if (messagesWrapper) {
+            messagesWrapper.scrollTop =
+                scrollPositions[userId] || messagesWrapper.scrollHeight
+        }
+        return
+    }
+    if (currentChatUserId) {
+        const messagesWrapper = document.getElementById(
+            'chat-messages-wrapper'
+        )
+        if (messagesWrapper) {
+            scrollPositions[currentChatUserId] = messagesWrapper.scrollTop
+        }
 
-					const currentText = document.getElementById('message-input').value
-					if (currentText.trim()) {
-						await eel.save_draft_message(
-							localStorage.getItem('user_id'),
-							currentChatUserId,
-							currentText
-						)()
-					}
-					chatInputs[currentChatUserId] = currentText
-				}
-				stopVoiceMessage()
-				currentPlayingAudio = null
-				voiceMessagePlaying = false
-				currentPlayingVoiceElement = null
-				await clearReplyState()
-				dateHeaders.clear()
-				currentStickyDate = null
-				if (dateHeadersObserver) {
-					dateHeadersObserver.disconnect()
-					dateHeadersObserver = null
-				}
+        const currentText = document.getElementById('message-input').value
+        if (currentText.trim()) {
+            await eel.save_draft_message(
+                localStorage.getItem('user_id'),
+                currentChatUserId,
+                currentText
+            )()
+        }
+        chatInputs[currentChatUserId] = currentText
+    }
+    stopVoiceMessage()
+    currentPlayingAudio = null
+    voiceMessagePlaying = false
+    currentPlayingVoiceElement = null
+    await clearReplyState()
+    
+     
+    dateHeaders.clear()
+    currentStickyDate = null
+    if (dateHeadersObserver) {
+        dateHeadersObserver.disconnect()
+        dateHeadersObserver = null
+    }
 
-				if (readStatusInterval) clearInterval(readStatusInterval)
-				if (statusUpdateInterval) clearInterval(statusUpdateInterval)
+    if (readStatusInterval) clearInterval(readStatusInterval)
+    if (statusUpdateInterval) clearInterval(statusUpdateInterval)
 
-				currentChatUserId = userId
-				const user = await eel.get_user_data(userId)()
+    currentChatUserId = userId
+    const user = await eel.get_user_data(userId)()
 
-				if (user) {
-					document.getElementById('default-content').classList.add('hidden')
-					document.getElementById('chat-container').classList.remove('hidden')
-					document.getElementById('chat-username').textContent =
-						userId === localStorage.getItem('user_id')
-							? 'Избранное'
-							: user.nickname
+    if (user) {
+        document.getElementById('default-content').classList.add('hidden')
+        document.getElementById('chat-container').classList.remove('hidden')
+        document.getElementById('chat-username').textContent =
+            userId === localStorage.getItem('user_id')
+                ? 'Избранное'
+                : user.nickname
 
-					await updateUserStatus()
-					if (userId !== localStorage.getItem('user_id')) {
-						const userPassword = sessionStorage.getItem('user_password')
-						if (userPassword) {
-							await setupChatEncryption(userId, userPassword)
-						} else {
-							console.warn(
-								'Пароль не найден в sessionStorage, шифрование не настроено'
-							)
-							hideEncryptionIndicator()
-						}
-						try {
-							await eel.mark_chat_messages_as_read(
-								localStorage.getItem('user_id'),
-								userId
-							)()
-							console.log('Сообщения помечены как прочитанные')
-						} catch (error) {
-							console.error('Ошибка пометки сообщений как прочитанных:', error)
-						}
-					} else {
-						hideEncryptionIndicator()
-					}
-					initCustomScroll()
-					await loadSecureChatHistory(userId)
-					const draftText = await eel.get_draft_message(
-						localStorage.getItem('user_id'),
-						userId
-					)()
-					document.getElementById('message-input').value =
-						draftText || chatInputs[userId] || ''
-					await checkAndRestoreReplyState()
+        await updateUserStatus()
+        if (userId !== localStorage.getItem('user_id')) {
+            const userPassword = sessionStorage.getItem('user_password')
+            if (userPassword) {
+                await setupChatEncryption(userId, userPassword)
+            } else {
+                console.warn(
+                    'Пароль не найден в sessionStorage, шифрование не настроено'
+                )
+                hideEncryptionIndicator()
+            }
+            try {
+                await eel.mark_chat_messages_as_read(
+                    localStorage.getItem('user_id'),
+                    userId
+                )()
+                console.log('Сообщения помечены как прочитанные')
+            } catch (error) {
+                console.error('Ошибка пометки сообщений как прочитанных:', error)
+            }
+        } else {
+            hideEncryptionIndicator()
+        }
+        initCustomScroll()
+        await loadSecureChatHistory(userId)
+        const draftText = await eel.get_draft_message(
+            localStorage.getItem('user_id'),
+            userId
+        )()
+        document.getElementById('message-input').value =
+            draftText || chatInputs[userId] || ''
+        await checkAndRestoreReplyState()
 
-					readStatusInterval = setInterval(updateReadStatus, 2000)
-					updateReadStatus()
+        readStatusInterval = setInterval(updateReadStatus, 2000)
+        updateReadStatus()
 
-					statusUpdateInterval = setInterval(updateUserStatus, 5000)
-					document.querySelectorAll('.user-bar').forEach(el => {
-						el.classList.remove('active-chat')
-					})
-					const userCard = document.querySelector(
-						`.user-bar[data-user-id="${userId}"]`
-					)
-					if (userCard) {
-						userCard.classList.add('active-chat')
-					}
+        statusUpdateInterval = setInterval(updateUserStatus, 5000)
+        document.querySelectorAll('.user-bar').forEach(el => {
+            el.classList.remove('active-chat')
+        })
+        const userCard = document.querySelector(
+            `.user-bar[data-user-id="${userId}"]`
+        )
+        if (userCard) {
+            userCard.classList.add('active-chat')
+        }
 
-					console.log('Чат успешно открыт с безопасным шифрованием')
-				} else {
-					console.error('User data not found for ID:', userId)
-					document.getElementById('chat-messages').innerHTML =
-						'<div class="error-message">Ошибка загрузки данных пользователя</div>'
-				}
-			}
+        console.log('Чат успешно открыт с безопасным шифрованием')
+    } else {
+        console.error('User data not found for ID:', userId)
+        document.getElementById('chat-messages').innerHTML =
+            '<div class="error-message">Ошибка загрузки данных пользователя</div>'
+    }
+}
 			async function loadSecureChatHistory(userId) {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					const response = await eel.get_encrypted_chat_history(
-						user_id,
-						userId
-					)()
+    try {
+        const user_id = localStorage.getItem('user_id')
+        const response = await eel.get_encrypted_chat_history(
+            user_id,
+            userId
+        )()
 
-					if (!response.success) {
-						throw new Error(response.message)
-					}
+        if (!response.success) {
+            throw new Error(response.message)
+        }
 
-					const messages = response.messages
-					console.log('Получено сообщений:', messages ? messages.length : 0)
+        const messages = response.messages
+        console.log('Получено сообщений:', messages ? messages.length : 0)
 
-					const messagesContainer = document.getElementById('chat-messages')
-					messagesContainer.innerHTML = '' 
+        const messagesContainer = document.getElementById('chat-messages')
+        messagesContainer.innerHTML = ''  
+        dateHeaders.clear()
+        currentStickyDate = null
 
-					dateHeaders.clear()
-					currentStickyDate = null
+        if (messages && messages.length > 0) {
+            const userPassword = sessionStorage.getItem('user_password')
+            if (!userPassword) {
+                throw new Error('Пароль не найден для дешифрования')
+            }
 
-					if (messages && messages.length > 0) {
-						const userPassword = sessionStorage.getItem('user_password')
-						if (!userPassword) {
-							throw new Error('Пароль не найден для дешифрования')
-						}
+         
+            for (const msg of messages) {
+                const isMyMessage = msg.sender_id === user_id
+                let displayText = msg.text
+                if (msg.is_encrypted && msg.text) {
+                    try {
+                        displayText = await MessageEncryption.decryptMessage(
+                            msg.text,
+                            userPassword
+                        )
+                        console.log('Сообщение успешно дешифровано')
+                    } catch (error) {
+                        console.error('Ошибка дешифрования сообщения:', error)
+                        displayText = '[Не удалось дешифровать сообщение]'
+                    }
+                }
+                if (msg.replied_message && msg.replied_message.is_encrypted) {
+                    try {
+                        msg.replied_message.text =
+                            await MessageEncryption.decryptMessage(
+                                msg.replied_message.text,
+                                userPassword
+                            )
+                    } catch (error) {
+                        console.error(
+                            'Ошибка дешифрования ответного сообщения:',
+                            error
+                        )
+                        msg.replied_message.text = '[Не удалось дешифровать]'
+                    }
+                }
 
-						let currentDateKey = null
+                const messageObj = {
+                    ...msg,
+                    text: displayText,
+                }
 
-						for (const msg of messages) {
-							const isMyMessage = msg.sender_id === user_id
-							let displayText = msg.text
-							if (msg.is_encrypted && msg.text) {
-								try {
-									displayText = await MessageEncryption.decryptMessage(
-										msg.text,
-										userPassword
-									)
-									console.log('Сообщение успешно дешифровано')
-								} catch (error) {
-									console.error('Ошибка дешифрования сообщения:', error)
-									displayText = '[Не удалось дешифровать сообщение]'
-								}
-							}
-							if (msg.replied_message && msg.replied_message.is_encrypted) {
-								try {
-									msg.replied_message.text =
-										await MessageEncryption.decryptMessage(
-											msg.replied_message.text,
-											userPassword
-										)
-								} catch (error) {
-									console.error(
-										'Ошибка дешифрования ответного сообщения:',
-										error
-									)
-									msg.replied_message.text = '[Не удалось дешифровать]'
-								}
-							}
-							const messageDate = new Date(msg.timestamp)
-							const messageDateKey = messageDate.toDateString()
+                await addMessageToChat(messageObj, isMyMessage, false)
+            }
 
-							if (messageDateKey !== currentDateKey) {
-								const dateText = formatMessageDate(msg.timestamp)
-								const dateHeader = createDateHeader(dateText, messageDateKey)
-								messagesContainer.appendChild(dateHeader)
-								dateHeaders.set(messageDateKey, dateHeader)
-								currentDateKey = messageDateKey
-							}
-							const messageObj = {
-								...msg,
-								text: displayText,
-							}
+            lastMessageId = messages[messages.length - 1].id
 
-							await addMessageToChat(messageObj, isMyMessage, false)
-						}
+            setTimeout(() => {
+                initDateHeadersSystem()
+                updateStickyDateHeaders()
 
-						lastMessageId = messages[messages.length - 1].id
-
-						setTimeout(() => {
-							initDateHeadersSystem()
-							updateStickyDateHeaders()
-
-							const messagesWrapper = document.getElementById(
-								'chat-messages-wrapper'
-							)
-							if (messagesWrapper) {
-								messagesWrapper.scrollTop = messagesWrapper.scrollHeight
-							}
-						}, 0)
-					} else {
-						messagesContainer.innerHTML =
-							'<div class="no-messages">Нет сообщений</div>'
-						lastMessageId = null
-					}
-				} catch (error) {
-					console.error('Error loading secure chat history:', error)
-					document.getElementById('chat-messages').innerHTML =
-						'<div class="error-message">Ошибка загрузки истории сообщений</div>'
-				}
-			}
+                const messagesWrapper = document.getElementById(
+                    'chat-messages-wrapper'
+                )
+                if (messagesWrapper) {
+                    messagesWrapper.scrollTop = messagesWrapper.scrollHeight
+                }
+            }, 0)
+        } else {
+            messagesContainer.innerHTML =
+                '<div class="no-messages">Нет сообщений</div>'
+            lastMessageId = null
+        }
+    } catch (error) {
+        console.error('Error loading secure chat history:', error)
+        document.getElementById('chat-messages').innerHTML =
+            '<div class="error-message">Ошибка загрузки истории сообщений</div>'
+    }
+}
 
 			async function preloadMediaForChat(userId) {
 				if (!activeChats[userId]?.messagesData) return
@@ -1624,304 +1695,297 @@
 				}
 			}
 
-			async function updateLastMessageOnUserCard(
-				userId,
-				messageText,
-				isMyMessage
-			) {
-				const userCard = document.querySelector(
-					`.user-bar[data-user-id="${userId}"]`
-				)
-				if (!userCard) return
+			async function updateLastMessageOnUserCard(userId, messageText, isMyMessage = false) {
+    const userCard = document.querySelector(
+        `.user-bar[data-user-id="${userId}"]`
+    );
+    if (!userCard) return;
 
-				const lastMsgDiv = userCard.querySelector('.last-message')
-				let displayText = messageText || '[Сообщение]'
+    const lastMsgDiv = userCard.querySelector('.last-message');
+    const contentWrapper = userCard.querySelector('.user-content-wrapper');
+    
+    let displayText = messageText || '[Сообщение]';
+    
+ 
+    if (displayText.length > 25) {
+        displayText = displayText.substring(0, 22) + '...';
+    }
 
-				if (displayText.length > 25) {
-					displayText = displayText.substring(0, 22) + '...'
-				}
-
-				if (isMyMessage) {
-					if (lastMsgDiv) {
-						lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`
-					} else {
-						const contentWrapper = userCard.querySelector(
-							'.user-content-wrapper'
-						)
-						if (contentWrapper) {
-							const newLastMsgDiv = document.createElement('div')
-							newLastMsgDiv.className = 'last-message'
-							newLastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`
-							contentWrapper.appendChild(newLastMsgDiv)
-						}
-					}
-				} else {
-					if (lastMsgDiv) {
-						lastMsgDiv.textContent = displayText
-					} else {
-						const contentWrapper = userCard.querySelector(
-							'.user-content-wrapper'
-						)
-						if (contentWrapper) {
-							const newLastMsgDiv = document.createElement('div')
-							newLastMsgDiv.className = 'last-message'
-							newLastMsgDiv.textContent = displayText
-							contentWrapper.appendChild(newLastMsgDiv)
-						}
-					}
-				}
-			}
+    if (isMyMessage) {
+        if (lastMsgDiv) {
+            lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+        } else if (contentWrapper) {
+            const newLastMsgDiv = document.createElement('div');
+            newLastMsgDiv.className = 'last-message';
+            newLastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${displayText}`;
+            contentWrapper.appendChild(newLastMsgDiv);
+        }
+    } else {
+        if (lastMsgDiv) {
+            lastMsgDiv.textContent = displayText;
+        } else if (contentWrapper) {
+            const newLastMsgDiv = document.createElement('div');
+            newLastMsgDiv.className = 'last-message';
+            newLastMsgDiv.textContent = displayText;
+            contentWrapper.appendChild(newLastMsgDiv);
+        }
+    }
+}
 
 			async function addMessageToChat(
-				message,
-				isMyMessage,
-				scrollToBottom = true
-			) {
-				const messagesContainer = document.getElementById('chat-messages')
+    message,
+    isMyMessage,
+    scrollToBottom = true
+) {
+    const messagesContainer = document.getElementById('chat-messages')
 
-				if (!messagesContainer) {
-					console.error('Messages container not found')
-					return null
-				}
-				if (message.id) {
-					const existingMessage = document.querySelector(
-						`.message[data-id="${message.id}"]`
-					)
-					if (existingMessage) {
-						console.log('Сообщение уже существует, пропускаем:', message.id)
-						return existingMessage
-					}
-				}
-				const noMessagesDiv = messagesContainer.querySelector('.no-messages')
-				if (noMessagesDiv) {
-					noMessagesDiv.remove()
-				}
+    if (!messagesContainer) {
+        console.error('Messages container not found')
+        return null
+    }
+    if (message.id) {
+        const existingMessage = document.querySelector(
+            `.message[data-id="${message.id}"]`
+        )
+        if (existingMessage) {
+            console.log('Сообщение уже существует, пропускаем:', message.id)
+            return existingMessage
+        }
+    }
+    const noMessagesDiv = messagesContainer.querySelector('.no-messages')
+    if (noMessagesDiv) {
+        noMessagesDiv.remove()
+    }
 
-				if (!message) {
-					console.error('Message is null or undefined')
-					return null
-				}
-				const messageElement = document.createElement('div')
-				messageElement.className = `message ${
-					isMyMessage ? 'my-message' : 'their-message'
-				}`
-				messageElement.dataset.id = message.id || ''
-				messageElement.dataset.sender_id = message.sender_id || ''
-				messageElement.dataset.timestamp =
-					message.timestamp || new Date().toISOString()
-				if (message.reply_to_message_id || message.replied_message) {
-					messageElement.classList.add('with-reply')
-				}
-				const messageTimestamp = message.timestamp || new Date().toISOString()
-				const dateKey = new Date(messageTimestamp).toDateString()
-				const dateText = formatMessageDate(messageTimestamp)
-				if (!dateHeaders.has(dateKey)) {
-					const dateHeader = createDateHeader(dateText, dateKey)
+    if (!message) {
+        console.error('Message is null or undefined')
+        return null
+    }
+    
+    
+    const messageTimestamp = message.timestamp || new Date().toISOString()
+    const dateKey = new Date(messageTimestamp).toDateString()
+    
+     
+    if (!dateHeaders.has(dateKey)) {
+        const dateText = formatMessageDate(messageTimestamp)
+        const dateHeader = createDateHeader(dateText, dateKey)
+        
+       
+        messagesContainer.appendChild(dateHeader)
+        dateHeaders.set(dateKey, dateHeader)
+    }
 
-					try {
-						messagesContainer.appendChild(dateHeader)
-						dateHeaders.set(dateKey, dateHeader)
-					} catch (error) {
-						console.error('Error adding date header:', error)
-					}
-				}
-				const messageContent = document.createElement('div')
-				messageContent.className = 'message-content'
-				if (message.reply_to_message_id || message.replied_message) {
-					const replyPreview = document.createElement('div')
-					replyPreview.className = 'reply-preview'
+ 
+    const messageElement = document.createElement('div')
+    messageElement.className = `message ${
+        isMyMessage ? 'my-message' : 'their-message'
+    }`
+    messageElement.dataset.id = message.id || ''
+    messageElement.dataset.sender_id = message.sender_id || ''
+    messageElement.dataset.timestamp = messageTimestamp
+    
+    if (message.reply_to_message_id || message.replied_message) {
+        messageElement.classList.add('with-reply')
+    }
+    
+    const messageContent = document.createElement('div')
+    messageContent.className = 'message-content'
+    if (message.reply_to_message_id || message.replied_message) {
+        const replyPreview = document.createElement('div')
+        replyPreview.className = 'reply-preview'
 
-					let repliedText = '[Сообщение]'
-					let replyAuthor = 'Собеседник'
-					if (message.replied_message && message.replied_message.text) {
-						repliedText = message.replied_message.text
-						replyAuthor =
-							message.replied_message.sender_id ===
-							localStorage.getItem('user_id')
-								? 'Вы'
-								: document.getElementById('chat-username')?.textContent ||
-								  'Собеседник'
-					}
-					else if (message.reply_to_message_id) {
-						try {
-							const repliedMessage = await eel.get_message_data(
-								message.reply_to_message_id
-							)()
-							if (repliedMessage) {
-								if (repliedMessage.is_encrypted) {
-									try {
-										const userPassword = sessionStorage.getItem('user_password')
-										if (userPassword) {
-											repliedText = await MessageEncryption.decryptMessage(
-												repliedMessage.text,
-												userPassword
-											)
-										} else {
-											repliedText = '[Зашифрованное сообщение]'
-										}
-									} catch (decryptError) {
-										console.error(
-											'Ошибка дешифрования ответного сообщения:',
-											decryptError
-										)
-										repliedText = '[Не удалось расшифровать]'
-									}
-								} else {
-									repliedText = repliedMessage.text || '[Сообщение]'
-								}
+        let repliedText = '[Сообщение]'
+        let replyAuthor = 'Собеседник'
+        if (message.replied_message && message.replied_message.text) {
+            repliedText = message.replied_message.text
+            replyAuthor =
+                message.replied_message.sender_id ===
+                localStorage.getItem('user_id')
+                    ? 'Вы'
+                    : document.getElementById('chat-username')?.textContent ||
+                      'Собеседник'
+        }
+        else if (message.reply_to_message_id) {
+            try {
+                const repliedMessage = await eel.get_message_data(
+                    message.reply_to_message_id
+                )()
+                if (repliedMessage) {
+                    if (repliedMessage.is_encrypted) {
+                        try {
+                            const userPassword = sessionStorage.getItem('user_password')
+                            if (userPassword) {
+                                repliedText = await MessageEncryption.decryptMessage(
+                                    repliedMessage.text,
+                                    userPassword
+                                )
+                            } else {
+                                repliedText = '[Зашифрованное сообщение]'
+                            }
+                        } catch (decryptError) {
+                            console.error(
+                                'Ошибка дешифрования ответного сообщения:',
+                                decryptError
+                            )
+                            repliedText = '[Не удалось расшифровать]'
+                        }
+                    } else {
+                        repliedText = repliedMessage.text || '[Сообщение]'
+                    }
 
-								replyAuthor =
-									repliedMessage.sender_id === localStorage.getItem('user_id')
-										? 'Вы'
-										: document.getElementById('chat-username')?.textContent ||
-										  'Собеседник'
-							}
-						} catch (error) {
-							console.error('Ошибка получения данных ответа:', error)
-							repliedText = '[Не удалось загрузить]'
-						}
-					}
-					const displayRepliedText =
-						repliedText.length > 50
-							? repliedText.substring(0, 47) + '...'
-							: repliedText
+                    replyAuthor =
+                        repliedMessage.sender_id === localStorage.getItem('user_id')
+                            ? 'Вы'
+                            : document.getElementById('chat-username')?.textContent ||
+                              'Собеседник'
+                }
+            } catch (error) {
+                console.error('Ошибка получения данных ответа:', error)
+                repliedText = '[Не удалось загрузить]'
+            }
+        }
+        const displayRepliedText =
+            repliedText.length > 50
+                ? repliedText.substring(0, 47) + '...'
+                : repliedText
 
-					replyPreview.innerHTML = `
+        replyPreview.innerHTML = `
         <div class="reply-author">${replyAuthor}</div>
         <div class="reply-text">${displayRepliedText}</div>
     `
-					replyPreview.addEventListener('click', function () {
-						const originalMessage = document.querySelector(
-							`.message[data-id="${message.reply_to_message_id}"]`
-						)
-						if (originalMessage) {
-							originalMessage.scrollIntoView({
-								behavior: 'smooth',
-								block: 'center',
-							})
-							originalMessage.style.backgroundColor = isMyMessage
-								? '#c8e6c9'
-								: '#1b5e20'
-							setTimeout(() => {
-								originalMessage.style.backgroundColor = ''
-							}, 1000)
-						}
-					})
+        replyPreview.addEventListener('click', function () {
+            const originalMessage = document.querySelector(
+                `.message[data-id="${message.reply_to_message_id}"]`
+            )
+            if (originalMessage) {
+                originalMessage.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                })
+                originalMessage.style.backgroundColor = isMyMessage
+                    ? '#c8e6c9'
+                    : '#1b5e20'
+                setTimeout(() => {
+                    originalMessage.style.backgroundColor = ''
+                }, 1000)
+            }
+        })
 
-					messageContent.appendChild(replyPreview)
-				}
+        messageContent.appendChild(replyPreview)
+    }
 
-				const textElement = document.createElement('div')
-				textElement.className = 'message-text'
-				let displayText = message.text || '[Сообщение]'
-				if (message.isMedia || message.is_media) {
-					if (message.mediaType === 'video') {
-						displayText = '🎥 [Видео]'
-					} else {
-						displayText = '🖼️ [Фото]'
-					}
-					textElement.textContent = displayText
-				}
-				else if (message.isVoiceMessage || message.is_voice) {
-					displayText = '🎤 [Голосовое сообщение]'
-					textElement.textContent = displayText
-				}
-				else {
-					textElement.textContent = displayText
-				}
+    const textElement = document.createElement('div')
+    textElement.className = 'message-text'
+    let displayText = message.text || '[Сообщение]'
+    if (message.isMedia || message.is_media) {
+        if (message.mediaType === 'video') {
+            displayText = '🎥 [Видео]'
+        } else {
+            displayText = '🖼️ [Фото]'
+        }
+        textElement.textContent = displayText
+    }
+    else if (message.isVoiceMessage || message.is_voice) {
+        displayText = '🎤 [Голосовое сообщение]'
+        textElement.textContent = displayText
+    }
+    else {
+        textElement.textContent = displayText
+    }
 
-				messageContent.appendChild(textElement)
-				const infoElement = document.createElement('div')
-				infoElement.className = 'message-info'
+    messageContent.appendChild(textElement)
+    const infoElement = document.createElement('div')
+    infoElement.className = 'message-info'
 
-				const timeElement = document.createElement('span')
-				timeElement.textContent = formatMessageTime(
-					message.timestamp || new Date().toISOString()
-				)
-				infoElement.appendChild(timeElement)
-				if (isMyMessage) {
-					const readStatus = document.createElement('span')
-					readStatus.textContent = message.read ? '✓✓' : '✓'
-					readStatus.className = 'read-status'
-					readStatus.style.color = message.read ? '#4CAF50' : '#999'
-					readStatus.style.marginLeft = '5px'
-					infoElement.appendChild(readStatus)
-				}
+    const timeElement = document.createElement('span')
+    timeElement.textContent = formatMessageTime(messageTimestamp)
+    infoElement.appendChild(timeElement)
+    if (isMyMessage) {
+        const readStatus = document.createElement('span')
+        readStatus.textContent = message.read ? '✓✓' : '✓'
+        readStatus.className = 'read-status'
+        readStatus.style.color = message.read ? '#4CAF50' : '#999'
+        readStatus.style.marginLeft = '5px'
+        infoElement.appendChild(readStatus)
+    }
 
-				messageContent.appendChild(infoElement)
-				messageElement.appendChild(messageContent)
-				messageElement.addEventListener('contextmenu', e => {
-					e.preventDefault()
-					currentContextMessage = messageElement
+    messageContent.appendChild(infoElement)
+    messageElement.appendChild(messageContent)
+    messageElement.addEventListener('contextmenu', e => {
+        e.preventDefault()
+        currentContextMessage = messageElement
 
-					const isMyMessage =
-						message.sender_id === localStorage.getItem('user_id')
-					const isMediaMessage = message.isMedia || message.is_media
-					const isVoiceMessage = message.isVoiceMessage || message.is_voice
-					const contextMenu = document.getElementById('message-context-menu')
-					if (contextMenu) {
-						document
-							.getElementById('message-edit')
-							.classList.toggle(
-								'hidden',
-								!isMyMessage || isMediaMessage || isVoiceMessage
-							)
-						document
-							.getElementById('message-delete')
-							.classList.toggle('hidden', !isMyMessage)
-						document
-							.getElementById('message-delete-for-me')
-							.classList.toggle('hidden', isMyMessage)
-						document
-							.getElementById('message-pin')
-							.classList.toggle('hidden', !isMyMessage || isVoiceMessage)
-						document
-							.getElementById('message-reply')
-							.classList.toggle('hidden', false)
-						document
-							.getElementById('message-forward')
-							.classList.toggle('hidden', false)
-						document
-							.getElementById('message-copy')
-							.classList.toggle('hidden', false)
-						showMessageContextMenu(e)
-					}
-				})
-				messageElement.addEventListener('dblclick', () => {
-					if (message.sender_id !== localStorage.getItem('user_id')) {
-						handleQuickReply(message)
-					}
-				})
-				try {
-					messagesContainer.appendChild(messageElement)
-					if (message.id) {
-						if (!window.messageElements) {
-							window.messageElements = new Map()
-						}
-						window.messageElements.set(message.id, messageElement)
-					}
-				} catch (error) {
-					console.error('Error adding message to container:', error)
-					return null
-				}
-				if (scrollToBottom) {
-					setTimeout(() => {
-						const messagesWrapper = document.getElementById(
-							'chat-messages-wrapper'
-						)
-						if (messagesWrapper) {
-							messagesWrapper.scrollTop = messagesWrapper.scrollHeight
-							setTimeout(updateStickyDateHeaders, 100)
-						}
-					}, 0)
-				}
+        const isMyMessage =
+            message.sender_id === localStorage.getItem('user_id')
+        const isMediaMessage = message.isMedia || message.is_media
+        const isVoiceMessage = message.isVoiceMessage || message.is_voice
+        const contextMenu = document.getElementById('message-context-menu')
+        if (contextMenu) {
+            document
+                .getElementById('message-edit')
+                .classList.toggle(
+                    'hidden',
+                    !isMyMessage || isMediaMessage || isVoiceMessage
+                )
+            document
+                .getElementById('message-delete')
+                .classList.toggle('hidden', !isMyMessage)
+            document
+                .getElementById('message-delete-for-me')
+                .classList.toggle('hidden', isMyMessage)
+            document
+                .getElementById('message-pin')
+                .classList.toggle('hidden', !isMyMessage || isVoiceMessage)
+            document
+                .getElementById('message-reply')
+                .classList.toggle('hidden', false)
+            document
+                .getElementById('message-forward')
+                .classList.toggle('hidden', false)
+            document
+                .getElementById('message-copy')
+                .classList.toggle('hidden', false)
+            showMessageContextMenu(e)
+        }
+    })
+    messageElement.addEventListener('dblclick', () => {
+        if (message.sender_id !== localStorage.getItem('user_id')) {
+            handleQuickReply(message)
+        }
+    })
+    
+    try {
+        messagesContainer.appendChild(messageElement)
+        if (message.id) {
+            if (!window.messageElements) {
+                window.messageElements = new Map()
+            }
+            window.messageElements.set(message.id, messageElement)
+        }
+    } catch (error) {
+        console.error('Error adding message to container:', error)
+        return null
+    }
+    
+    if (scrollToBottom) {
+        setTimeout(() => {
+            const messagesWrapper = document.getElementById(
+                'chat-messages-wrapper'
+            )
+            if (messagesWrapper) {
+                messagesWrapper.scrollTop = messagesWrapper.scrollHeight
+                setTimeout(updateStickyDateHeaders, 100)
+            }
+        }, 0)
+    }
 
-				if (message.isVoiceMessage || message.is_voice) {
-					await updateVoiceMessageStatus(messageElement, message)
-				}
+    if (message.isVoiceMessage || message.is_voice) {
+        await updateVoiceMessageStatus(messageElement, message)
+    }
 
-				return messageElement
-			}
+    return messageElement
+}
 
 			async function handleQuickReply(message) {
 				const messageInput = document.getElementById('message-input')
@@ -2080,140 +2144,143 @@
 			}
 
 			async function loadFriends() {
-				console.log('=== НАЧАЛО loadFriends ===')
-				const user_id = localStorage.getItem('user_id')
+    console.log('=== НАЧАЛО loadFriends ===');
+    const user_id = localStorage.getItem('user_id');
 
-				if (!user_id) {
-					console.error('User ID не найден в localStorage')
-					return
-				}
+    if (!user_id) {
+        console.error('User ID не найден в localStorage');
+        return;
+    }
 
-				try {
-					currentUser = await eel.get_user_data(user_id)()
-					const container = document.getElementById('user-container')
-					container.innerHTML = ''
-					const selfCard = createUserCard({
-						user_id: user_id,
-						nickname: 'Избранное',
-						isCurrentUser: true,
-						isSelfChat: true,
-					})
-					container.appendChild(selfCard)
-					if (currentUser.friends && currentUser.friends.length > 0) {
-						for (const friendId of currentUser.friends) {
-							try {
-								const friend = await eel.get_user_data(friendId)()
-								if (friend) {
-									const lastMessage = await eel.get_last_message(
-										user_id,
-										friendId
-									)()
-									const friendCard = createUserCard({
-										user_id: friendId,
-										nickname: friend.nickname,
-										isFriend: true,
-										lastMessage: lastMessage,
-									})
-									container.appendChild(friendCard)
-								}
-							} catch (error) {
-								console.error('Ошибка загрузки друга:', friendId, error)
-							}
-						}
-						updateOnlineStatusInContacts()
-					} else {
-						const noFriends = document.createElement('div')
-						noFriends.className = 'no-friends'
-						noFriends.textContent =
-							'У вас пока нет друзей. Найдите их через поиск!'
-						container.appendChild(noFriends)
-					}
-				} catch (error) {
-					console.error('Error loading friends:', error)
-				}
-			}
+    try {
+        currentUser = await eel.get_user_data(user_id)();
+        const container = document.getElementById('user-container');
+        container.innerHTML = '';
+        
+        
+        const selfCard = createUserCard({
+            user_id: user_id,
+            nickname: 'Избранное',
+            isCurrentUser: true,
+            isSelfChat: true,
+        });
+        container.appendChild(selfCard);
+        
+        if (currentUser.friends && currentUser.friends.length > 0) {
+            
+            for (const friendId of currentUser.friends) {
+                try {
+                    const friend = await eel.get_user_data(friendId)();
+                    if (friend) {
+                        const lastMessage = await eel.get_last_message(user_id, friendId)();
+                        
+                        const friendCard = createUserCard({
+                            user_id: friendId,
+                            nickname: friend.nickname,
+                            isFriend: true,
+                            lastMessage: lastMessage,
+                        });
+                        container.appendChild(friendCard);
+                    }
+                } catch (error) {
+                    console.error('Ошибка загрузки друга:', friendId, error);
+                }
+            }
+            
+             
+            setTimeout(async () => {
+                await decryptLastMessageForAllUsers();
+            }, 500);
+            
+            updateOnlineStatusInContacts();
+        } else {
+            const noFriends = document.createElement('div');
+            noFriends.className = 'no-friends';
+            noFriends.textContent = 'У вас пока нет друзей. Найдите их через поиск!';
+            container.appendChild(noFriends);
+        }
+    } catch (error) {
+        console.error('Error loading friends:', error);
+    }
+}
 
 			function createUserCard(userData) {
-				console.log('Создание карточки пользователя:', userData)
+    console.log('Создание карточки пользователя:', userData);
 
-				const card = document.createElement('div')
-				card.className =
-					'user-bar' + (userData.isCurrentUser ? ' current-user' : '')
-				card.dataset.userId = userData.user_id
+    const card = document.createElement('div');
+    card.className = 'user-bar' + (userData.isCurrentUser ? ' current-user' : '');
+    card.dataset.userId = userData.user_id;
 
-				const avatar = document.createElement('div')
-				avatar.className = 'avatar-medium'
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar-medium';
 
-				if (userData.isSelfChat) {
-					avatar.style.backgroundImage =
-						'url(https://cdn-icons-png.flaticon.com/512/1077/1077114.png)'
-					avatar.style.backgroundColor = '#4CAF50'
-				} else {
-					avatar.style.backgroundImage =
-						'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)'
-				}
+    if (userData.isSelfChat) {
+        avatar.style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/1077/1077114.png)';
+        avatar.style.backgroundColor = '#4CAF50';
+    } else {
+        avatar.style.backgroundImage = 'url(https://cdn-icons-png.flaticon.com/512/3135/3135715.png)';
+    }
 
-				const contentWrapper = document.createElement('div')
-				contentWrapper.className = 'user-content-wrapper'
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'user-content-wrapper';
 
-				const username = document.createElement('div')
-				username.className = 'username'
+    const username = document.createElement('div');
+    username.className = 'username';
 
-				if (userData.isSelfChat) {
-					username.textContent = 'Избранное'
-					username.style.fontWeight = 'bold'
-					username.style.color = '#4CAF50'
-				} else if (userData.isCurrentUser) {
-					username.textContent = 'Вы'
-				} else {
-					username.textContent = userData.nickname
-				}
+    if (userData.isSelfChat) {
+        username.textContent = 'Избранное';
+        username.style.fontWeight = 'bold';
+        username.style.color = '#4CAF50';
+    } else if (userData.isCurrentUser) {
+        username.textContent = 'Вы';
+    } else {
+        username.textContent = userData.nickname;
+    }
 
-				contentWrapper.appendChild(username)
-				if (
-					userData.lastMessage &&
-					!userData.isCurrentUser &&
-					!userData.isSelfChat
-				) {
-					const lastMsgDiv = document.createElement('div')
-					lastMsgDiv.className = 'last-message'
+    contentWrapper.appendChild(username);
+    
+    if (userData.lastMessage && !userData.isCurrentUser && !userData.isSelfChat) {
+        const lastMsgDiv = document.createElement('div');
+        lastMsgDiv.className = 'last-message';
 
-					let messageText = userData.lastMessage.text || '[Сообщение]'
-					if (messageText.length > 25) {
-						messageText = messageText.substring(0, 22) + '...'
-					}
+        let messageText = userData.lastMessage.text || '[Сообщение]';
+        
+         
+        if (messageText.length > 25) {
+            messageText = messageText.substring(0, 22) + '...';
+        }
 
-					if (
-						userData.lastMessage.sender_id === localStorage.getItem('user_id')
-					) {
-						lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${messageText}`
-					} else {
-						lastMsgDiv.textContent = messageText
-					}
+        if (userData.lastMessage.sender_id === localStorage.getItem('user_id')) {
+            lastMsgDiv.innerHTML = `<span class="you-indicator">Вы:</span> ${messageText}`;
+        } else {
+            lastMsgDiv.textContent = messageText;
+        }
 
-					contentWrapper.appendChild(lastMsgDiv)
-				}
+        contentWrapper.appendChild(lastMsgDiv);
+    }
 
-				card.appendChild(avatar)
-				card.appendChild(contentWrapper)
-				card.addEventListener('click', function () {
-					console.log('Открываем чат с:', userData.user_id)
-					openChat(userData.user_id)
+    card.appendChild(avatar);
+    card.appendChild(contentWrapper);
+    
+    card.addEventListener('click', function () {
+        console.log('Открываем чат с:', userData.user_id);
+        openChat(userData.user_id);
 
-					document.querySelectorAll('.user-bar').forEach(el => {
-						el.classList.remove('active-chat')
-					})
-					card.classList.add('active-chat')
-				})
-				if (!userData.isSelfChat && !userData.isCurrentUser) {
-					card.addEventListener('contextmenu', function (e) {
-						e.preventDefault()
-						showContextMenu(e, userData)
-					})
-				}
+        document.querySelectorAll('.user-bar').forEach(el => {
+            el.classList.remove('active-chat');
+        });
+        card.classList.add('active-chat');
+    });
+    
+    if (!userData.isSelfChat && !userData.isCurrentUser) {
+        card.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            showContextMenu(e, userData);
+        });
+    }
 
-				return card
-			}
+    return card;
+}
 
 			function showContextMenu(e, userData) {
 				closeContextMenu()
@@ -2285,34 +2352,59 @@
 			}
 
 			async function displaySearchResults(users) {
-				const container = document.getElementById('user-container')
-				container.innerHTML = ''
+    const container = document.getElementById('user-container');
+    container.innerHTML = '';
 
-				if (users.length === 0) {
-					const noResults = document.createElement('div')
-					noResults.className = 'no-results'
-					noResults.textContent = 'Ничего не найдено'
-					container.appendChild(noResults)
-					return
-				}
+    if (users.length === 0) {
+        const noResults = document.createElement('div');
+        noResults.className = 'no-results';
+        noResults.textContent = 'Ничего не найдено';
+        container.appendChild(noResults);
+        return;
+    }
 
-				for (const user of users) {
-					const isFriend = currentUser.friends.includes(user.user_id)
-					const lastMessage = await eel.get_last_message(
-						localStorage.getItem('user_id'),
-						user.user_id
-					)()
-					const userCard = createUserCard({
-						user_id: user.user_id,
-						nickname: user.nickname, 
-						isFriend: isFriend,
-						lastMessage: lastMessage,
-					})
-					container.appendChild(userCard)
-				}
+    const user_id = localStorage.getItem('user_id');
+    
+    for (const user of users) {
+        const isFriend = currentUser.friends.includes(user.user_id);
+        const lastMessage = await eel.get_last_message(
+            user_id,
+            user.user_id
+        )();
+        
+        
+        if (lastMessage && lastMessage.is_encrypted) {
+            try {
+                const userPassword = sessionStorage.getItem('user_password');
+                if (userPassword) {
+                    const chatHistory = await eel.get_encrypted_chat_history(user_id, user.user_id)();
+                    if (chatHistory.success && chatHistory.messages && chatHistory.messages.length > 0) {
+                        const lastMsg = chatHistory.messages[chatHistory.messages.length - 1];
+                        if (lastMsg.is_encrypted && lastMsg.text) {
+                            const decryptedText = await MessageEncryption.decryptMessage(
+                                lastMsg.text,
+                                userPassword
+                            );
+                            lastMessage.text = decryptedText;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка дешифрования при поиске:', error);
+            }
+        }
+        
+        const userCard = createUserCard({
+            user_id: user.user_id,
+            nickname: user.nickname,
+            isFriend: isFriend,
+            lastMessage: lastMessage,
+        });
+        container.appendChild(userCard);
+    }
 
-				updateOnlineStatusInContacts()
-			}
+    updateOnlineStatusInContacts();
+}
 
 			function initButtonHandlers() {
 				const messageInput = document.getElementById('message-input')
@@ -2581,102 +2673,91 @@
 				}
 
 				async function loadZKChatHistory(userId) {
-					console.log('Загрузка истории чата для пользователя:', userId)
-					if (window.isLoadingChat === userId) {
-						console.log('Чат уже загружается, пропускаем:', userId)
-						return
-					}
+    console.log('Загрузка истории чата для пользователя:', userId)
+    if (window.isLoadingChat === userId) {
+        console.log('Чат уже загружается, пропускаем:', userId)
+        return
+    }
 
-					try {
-						window.isLoadingChat = userId 
+    try {
+        window.isLoadingChat = userId 
 
-						const user_id = localStorage.getItem('user_id')
-						console.log('Запрашиваем историю чата для:', user_id, 'с:', userId)
+        const user_id = localStorage.getItem('user_id')
+        console.log('Запрашиваем историю чата для:', user_id, 'с:', userId)
 
-						const messages = await eel.get_chat_messages_decrypted(
-							user_id,
-							userId
-						)()
+        const messages = await eel.get_chat_messages_decrypted(
+            user_id,
+            userId
+        )()
 
-						console.log('Получено сообщений:', messages ? messages.length : 0)
+        console.log('Получено сообщений:', messages ? messages.length : 0)
 
-						const messagesContainer = document.getElementById('chat-messages')
-						if (!messagesContainer) {
-							console.error('Контейнер сообщений не найден!')
-							return
-						}
+        const messagesContainer = document.getElementById('chat-messages')
+        if (!messagesContainer) {
+            console.error('Контейнер сообщений не найден!')
+            return
+        }
 
-						messagesContainer.innerHTML = ''
+        messagesContainer.innerHTML = ''
 
-						dateHeaders.clear()
-						currentStickyDate = null
-						if (dateHeadersObserver) {
-							dateHeadersObserver.disconnect()
-							dateHeadersObserver = null
-						}
+        
+        dateHeaders.clear()
+        currentStickyDate = null
+        if (dateHeadersObserver) {
+            dateHeadersObserver.disconnect()
+            dateHeadersObserver = null
+        }
 
-						if (messages && Array.isArray(messages) && messages.length > 0) {
-							console.log('Обрабатываем сообщения:', messages.length)
+        if (messages && Array.isArray(messages) && messages.length > 0) {
+            console.log('Обрабатываем сообщения:', messages.length)
 
-							let currentDateKey = null
+             
+            for (const msg of messages) {
+                const isMyMessage = msg.sender_id === user_id
+                await addMessageToChat(msg, isMyMessage, false)
+            }
 
-							for (const msg of messages) {
-								const isMyMessage = msg.sender_id === user_id
-								const messageDate = new Date(msg.timestamp)
-								const messageDateKey = messageDate.toDateString()
+            lastMessageId = messages[messages.length - 1].id
+            console.log('Last message ID установлен:', lastMessageId)
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: lastMessageId,
+                messagesData: messages,
+            }
 
-								if (messageDateKey !== currentDateKey) {
-									const dateText = formatMessageDate(msg.timestamp)
-									const dateHeader = createDateHeader(dateText, messageDateKey)
-									messagesContainer.appendChild(dateHeader)
-									dateHeaders.set(messageDateKey, dateHeader)
-									currentDateKey = messageDateKey
-								}
+            setTimeout(() => {
+                initDateHeadersSystem()
+                updateStickyDateHeaders()
 
-								await addMessageToChat(msg, isMyMessage, false)
-							}
-
-							lastMessageId = messages[messages.length - 1].id
-							console.log('Last message ID установлен:', lastMessageId)
-							activeChats[userId] = {
-								messages: messagesContainer.innerHTML,
-								lastMessageId: lastMessageId,
-								messagesData: messages,
-							}
-
-							setTimeout(() => {
-								initDateHeadersSystem()
-								updateStickyDateHeaders()
-
-								const messagesWrapper = document.getElementById(
-									'chat-messages-wrapper'
-								)
-								if (messagesWrapper) {
-									messagesWrapper.scrollTop = messagesWrapper.scrollHeight
-								}
-							}, 0)
-						} else {
-							console.log('Нет сообщений в чате')
-							messagesContainer.innerHTML =
-								'<div class="no-messages">Нет сообщений</div>'
-							lastMessageId = null
-							activeChats[userId] = {
-								messages: messagesContainer.innerHTML,
-								lastMessageId: null,
-								messagesData: [],
-							}
-						}
-					} catch (error) {
-						console.error('Error loading chat history:', error)
-						const messagesContainer = document.getElementById('chat-messages')
-						if (messagesContainer) {
-							messagesContainer.innerHTML =
-								'<div class="error-message">Ошибка загрузки истории сообщений</div>'
-						}
-					} finally {
-						window.isLoadingChat = null
-					}
-				}
+                const messagesWrapper = document.getElementById(
+                    'chat-messages-wrapper'
+                )
+                if (messagesWrapper) {
+                    messagesWrapper.scrollTop = messagesWrapper.scrollHeight
+                }
+            }, 0)
+        } else {
+            console.log('Нет сообщений в чате')
+            messagesContainer.innerHTML =
+                '<div class="no-messages">Нет сообщений</div>'
+            lastMessageId = null
+            activeChats[userId] = {
+                messages: messagesContainer.innerHTML,
+                lastMessageId: null,
+                messagesData: [],
+            }
+        }
+    } catch (error) {
+        console.error('Error loading chat history:', error)
+        const messagesContainer = document.getElementById('chat-messages')
+        if (messagesContainer) {
+            messagesContainer.innerHTML =
+                '<div class="error-message">Ошибка загрузки истории сообщений</div>'
+        }
+    } finally {
+        window.isLoadingChat = null
+    }
+}
 
 				async function handleReply() {
 					if (!currentContextMessage) return
@@ -3167,18 +3248,21 @@
 				return dateHeader
 			}
 
-			function addDateHeaderToMessage(messageElement, timestamp) {
-				const dateKey = new Date(timestamp).toDateString() 
-				const dateText = formatMessageDate(timestamp)
-				if (dateHeaders.has(dateKey)) {
-					return
-				}
+			 function addDateHeaderToMessage(messageElement, timestamp) {
+    const dateKey = new Date(timestamp).toDateString()
+    const dateText = formatMessageDate(timestamp)
+    
+   
+    if (dateHeaders.has(dateKey)) {
+        return
+    }
 
-				const dateHeader = createDateHeader(dateText, dateKey)
-				dateHeaders.set(dateKey, dateHeader)
-				const messagesContainer = document.getElementById('chat-messages')
-				messagesContainer.insertBefore(dateHeader, messageElement)
-			}
+    const dateHeader = createDateHeader(dateText, dateKey)
+    dateHeaders.set(dateKey, dateHeader)
+    
+    const messagesContainer = document.getElementById('chat-messages')
+    messagesContainer.insertBefore(dateHeader, messageElement)
+}
 
 			function updateStickyDateHeaders() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
