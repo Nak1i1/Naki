@@ -6,7 +6,6 @@ import logging
 import os
 import base64
 from pathlib import Path
-import gridfs
 import secrets
 import json
 import hashlib
@@ -15,13 +14,10 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-import secrets
-import os
-
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
+
 
 
 CURVE = ec.SECP256R1()
@@ -92,13 +88,6 @@ except:
 users_collection.create_index([("email_hash", 1)], unique=True)
 users_collection.create_index([("nickname", 1)])
 
-def get_local_time():
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-@eel.expose
-def get_current_time():
-    """Получение текущего времени для клиента"""
-    return datetime.now().astimezone().isoformat()
 
 eel.init("web")
 
@@ -185,65 +174,6 @@ def get_public_key(user_id):
         logger.error(f"Ошибка получения публичного ключа: {e}")
         return {"success": False, "message": str(e)}
 
-@eel.expose
-def compute_shared_secret(user_id, peer_public_key_pem):
-    """Вычисление общего секрета между двумя пользователями"""
-    try:
-        
-        key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
-        if not key_data or 'private_key' not in key_data:
-            return {"success": False, "message": "Приватный ключ не найден"}
-        
-        
-        private_key = serialization.load_pem_private_key(
-            key_data['private_key'].encode('utf-8'),
-            password=None
-        )
-        
-        
-        peer_public_key = serialization.load_pem_public_key(
-            peer_public_key_pem.encode('utf-8')
-        )
-        
-        
-        shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-        
-        
-        derived_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,  
-            salt=None,
-            info=HKDF_INFO
-        ).derive(shared_secret)
-        
-        
-        
-        peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
-        if not peer_key_data:
-            return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
-            
-        peer_id = peer_key_data["user_id"]
-        
-        shared_keys_collection.update_one(
-            {
-                "user_id": ObjectId(user_id),
-                "peer_id": peer_id
-            },
-            {
-                "$set": {
-                    "shared_secret": derived_key.hex(),
-                    "computed_at": datetime.utcnow()
-                }
-            },
-            upsert=True
-        )
-        
-        logger.info(f"Вычислен общий секрет для пользователя {user_id}")
-        return {"success": True, "shared_secret": derived_key.hex()}
-        
-    except Exception as e:
-        logger.error(f"Ошибка вычисления общего секрета: {e}")
-        return {"success": False, "message": str(e)}
     
 @eel.expose
 def mark_chat_messages_as_read(user_id, peer_id):
@@ -326,36 +256,6 @@ def encrypt_message(user_id, peer_id, plaintext):
         logger.error(f"Ошибка шифрования сообщения: {e}")
         return {"success": False, "message": str(e)}
     
-    
-    
-    
-@eel.expose
-def debug_encryption_status(user_id, peer_id):
-    """Функция для отладки статуса шифрования"""
-    try:
-        
-        user_ecdh = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
-        peer_ecdh = ecdh_keys_collection.find_one({"user_id": ObjectId(peer_id)})
-        
-        
-        shared_key = shared_keys_collection.find_one({
-            "$or": [
-                {"user_id": ObjectId(user_id), "peer_id": ObjectId(peer_id)},
-                {"user_id": ObjectId(peer_id), "peer_id": ObjectId(user_id)}
-            ]
-        })
-        
-        return {
-            "user_ecdh_exists": user_ecdh is not None,
-            "peer_ecdh_exists": peer_ecdh is not None,
-            "shared_key_exists": shared_key is not None,
-            "shared_key_data": shared_key
-        }
-        
-    except Exception as e:
-        logger.error(f"Ошибка отладки: {e}")
-        return {"error": str(e)}
-    
 @eel.expose
 def send_message_encrypted_force(sender_id, receiver_id, text):
     """Принудительная отправка зашифрованного сообщения"""
@@ -389,67 +289,6 @@ def get_shared_key(user_id, peer_id):
             
     except Exception as e:
         logger.error(f"Ошибка получения общего ключа: {e}")
-        return {"success": False, "message": str(e)}
-    
-    
-    
-
-@eel.expose
-def decrypt_message(user_id, message_id):
-    """Дешифрование сообщения с использованием общего ключа из базы"""
-    try:
-        
-        message = messages_collection.find_one({"_id": ObjectId(message_id)})
-        if not message:
-            return {"success": False, "message": "Сообщение не найдено"}
-        
-        
-        if not message.get("is_encrypted", False):
-            return {
-                "success": True,
-                "plaintext": message.get("text", "")
-            }
-        
-        
-        sender_id = message['sender_id']
-        receiver_id = message['receiver_id']
-        
-        
-        current_user_id = ObjectId(user_id)
-        if current_user_id == sender_id:
-            peer_id = receiver_id
-        else:
-            peer_id = sender_id
-        
-        
-        key_data = shared_keys_collection.find_one({
-            "$or": [
-                {"user_id": current_user_id, "peer_id": ObjectId(peer_id)},
-                {"user_id": ObjectId(peer_id), "peer_id": current_user_id}
-            ]
-        })
-        
-        if not key_data:
-            return {"success": False, "message": "Общий ключ не найден для этого чата"}
-        
-        
-        key = bytes.fromhex(key_data['shared_secret'])
-        
-        
-        ciphertext = bytes.fromhex(message['ciphertext'])
-        nonce = bytes.fromhex(message['nonce'])
-        
-        
-        aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-        
-        return {
-            "success": True,
-            "plaintext": plaintext.decode('utf-8')
-        }
-        
-    except Exception as e:
-        logger.error(f"Ошибка дешифрования сообщения {message_id}: {e}")
         return {"success": False, "message": str(e)}
 
 @eel.expose
@@ -740,43 +579,7 @@ def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
     
     
     
-@eel.expose
-def send_zk_message(sender_id, receiver_id, text):
-    """Универсальная функция отправки сообщения (с шифрованием если возможно)"""
-    try:
-        logger.info(f"Отправка сообщения от {sender_id} к {receiver_id}")
-        
-        
-        key_data = shared_keys_collection.find_one({
-            "$or": [
-                {"user_id": ObjectId(sender_id), "peer_id": ObjectId(receiver_id)},
-                {"user_id": ObjectId(receiver_id), "peer_id": ObjectId(sender_id)}
-            ]
-        })
-        
-        logger.info(f"Общий ключ найден: {'да' if key_data else 'нет'}")
-        
-        if key_data:
-            
-            logger.info("Отправка ЗАШИФРОВАННОГО сообщения")
-            result = encrypt_message(sender_id, receiver_id, text)
-            if result['success']:
-                result['is_encrypted'] = True
-                logger.info(f"Сообщение успешно зашифровано, ID: {result['message_id']}")
-            else:
-                logger.error(f"Ошибка шифрования: {result['message']}")
-            return result
-        else:
-            
-            logger.info("Отправка обычного сообщения (шифрование не настроено)")
-            result = send_message(sender_id, receiver_id, text)
-            if result['success']:
-                result['is_encrypted'] = False
-            return result
-            
-    except Exception as e:
-        logger.error(f"Ошибка отправки ZK сообщения: {e}")
-        return {"success": False, "message": str(e)}
+
     
 @eel.expose
 def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
@@ -813,48 +616,7 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
         logger.error(f"Ошибка отправки сообщения: {e}")
         return {"success": False, "message": str(e)}
     
-@eel.expose
-def get_chat_messages_decrypted(user_id, peer_id):
-    """Получение истории чата с автоматическим дешифрованием"""
-    try:
-        messages = messages_collection.find({
-            "$or": [
-                {"sender_id": ObjectId(user_id), "receiver_id": ObjectId(peer_id)},
-                {"sender_id": ObjectId(peer_id), "receiver_id": ObjectId(user_id)}
-            ]
-        }).sort("timestamp", 1)
-        
-        messages_list = []
-        for message in messages:
-            
-            deleted_for = message.get("deleted_for", [])
-            if ObjectId(user_id) in deleted_for:
-                continue  
-                
-            message_data = {
-                "id": str(message["_id"]),
-                "sender_id": str(message["sender_id"]),
-                "receiver_id": str(message["receiver_id"]),
-                "timestamp": message["timestamp"].isoformat(),
-                "read": message.get("read", False),
-                "is_encrypted": message.get("is_encrypted", False)
-            }
-            
-            
-            if message.get("is_encrypted"):
-                message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
-            else:
-                message_data["text"] = message.get("text", "")
-            
-            messages_list.append(message_data)
-        
-        return messages_list
-        
-    except Exception as e:
-        logger.error(f"Ошибка получения дешифрованных сообщений: {e}")
-        return []
-    
-    
+
 
 @eel.expose
 def check_chat_encryption_status(user_id, peer_id):

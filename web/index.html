@@ -237,7 +237,6 @@
 			let currentPlayingAudio = null
 			let voiceMessagePlaying = false
 			let currentPlayingVoiceElement = null
-			let ecdhInitialized = false
 			let currentContextMessage = null
 			let chatInputs = {}
 			let scrollPositions = {}
@@ -248,8 +247,6 @@
 			let dateHeaders = new Map()
 			let currentStickyDate = null
 			let dateHeadersObserver = null
-			let encryptionEnabled = false
-			let currentPeerKey = null
 			document.addEventListener('keydown', function (e) {
 				if (e.key === 'Escape') {
 					if (
@@ -290,39 +287,6 @@
 					}
 				}
 			})
-			function closeChatAndReset() {
-				document.getElementById('default-content').classList.remove('hidden')
-				document.getElementById('chat-container').classList.add('hidden')
-				currentChatUserId = null
-				document.querySelectorAll('.user-bar').forEach(el => {
-					el.classList.remove('active-chat')
-				})
-				stopVoiceMessage()
-				currentPlayingAudio = null
-				voiceMessagePlaying = false
-				currentPlayingVoiceElement = null
-				const messageInput = document.getElementById('message-input')
-				if (messageInput) {
-					messageInput.value = ''
-				}
-				const replyContainer = document.getElementById('reply-container')
-				if (replyContainer) {
-					replyContainer.classList.add('hidden')
-					document
-						.querySelector('.message-input-container')
-						.classList.remove('expanded')
-				}
-				if (readStatusInterval) {
-					clearInterval(readStatusInterval)
-					readStatusInterval = null
-				}
-				if (statusUpdateInterval) {
-					clearInterval(statusUpdateInterval)
-					statusUpdateInterval = null
-				}
-
-				console.log('Чат закрыт по ESC, возврат на главный экран')
-			}
 
 			function initImageModal() {
 				const imageModalOverlay = document.getElementById('image-modal-overlay')
@@ -377,15 +341,6 @@
 					}
 					currentPlayingVoiceElement = null
 				}
-			}
-
-			function setupVoiceMessageHandlers() {
-				 
-			}
-
-			function updateListenIndicators() {
-				 
-				return Promise.resolve()
 			}
 
 			class MessageEncryption {
@@ -770,26 +725,7 @@ async function decryptLastMessageForAllUsers() {
 					return false
 				}
 			}
-			function sendAllMedia() {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-				closeMediaModal()
-			}
-
-			function openFileSelector() {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-			}
-
-			function closeMediaModal() {
-			}
-
-			function handleFileSelect(event) {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-				event.target.value = ''
-			}
-
-			function showMediaUploadProgress() {}
-			function hideMediaUploadProgress() {}
-			function updateMediaUploadProgress() {}
+ 
 
 			document.addEventListener('click', function (e) {
 				let userBar = e.target.closest('.user-bar')
@@ -2993,16 +2929,7 @@ async function decryptLastMessageForAllUsers() {
 			document.addEventListener('DOMContentLoaded', function () {
 				initMessageContextMenu()
 			})
-			document.getElementById('message-reply').addEventListener('click', () => {
-				if (currentContextMessage) {
-					const messageText =
-						currentContextMessage.querySelector('.message-text').textContent
-					const messageInput = document.getElementById('message-input')
-					messageInput.value = `Ответ на: "${messageText}" `
-					messageInput.focus()
-				}
-				messageContextMenu.classList.add('hidden')
-			})
+ 
 
 			document
 				.getElementById('message-edit')
@@ -3332,62 +3259,8 @@ async function decryptLastMessageForAllUsers() {
 			}
 			window.addEventListener('resize', positionPhotoMenu)
 
-			async function initializeUserKey(password) {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					if (!user_id) {
-						throw new Error('User ID not found')
-					}
-					const saltResponse = await eel.get_user_salt(user_id)()
-					if (!saltResponse.success) {
-						throw new Error('Не удалось получить соль пользователя')
-					}
-					localStorage.setItem('user_salt', saltResponse.salt)
-					sessionStorage.setItem('user_password', password)
-					const saltBytes = Uint8Array.from(atob(saltResponse.salt), c =>
-						c.charCodeAt(0)
-					)
-					userEncryptionKey = await zkCrypto.deriveKey(password, saltBytes)
-
-					if (!testResult) {
-						throw new Error('Ключ не работает')
-					}
-
-					localStorage.setItem('zk_initialized', 'true')
-					console.log('ZK система инициализирована успешно')
-					return true
-				} catch (error) {
-					console.error('Error initializing user key:', error)
-					localStorage.removeItem('zk_initialized')
-					localStorage.removeItem('user_salt')
-					sessionStorage.removeItem('user_password')
-					userEncryptionKey = null
-					return false
-				}
-			}
+			 
 		</script>
-		<div class="modal-overlay hidden" id="delete-message-overlay"></div>
-		<div class="delete-message-modal hidden" id="delete-message-modal">
-			<button class="modal-close-btn" id="delete-message-close-btn">×</button>
-			<div class="delete-message-text">Удалить сообщение</div>
-			<div class="delete-message-buttons">
-				<button
-					class="delete-message-button delete-for-all"
-					id="delete-for-all-btn"
-				>
-					Удалить у всех
-				</button>
-				<button
-					class="delete-message-button delete-for-me"
-					id="delete-for-me-btn"
-				>
-					Только у меня
-				</button>
-			</div>
-			<button class="delete-message-cancel" id="delete-message-cancel-btn">
-				Отмена
-			</button>
-		</div>
 	</body>
 </html>
 
