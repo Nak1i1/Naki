@@ -538,102 +538,7 @@ async function setupEcdhEncryption(peerUserId) {
     }
 }
 
-// Функция отправки сообщения с ECDH шифрованием
-async function sendEcdhEncryptedMessage(text) {
-    try {
-        if (!currentChatUserId || !text.trim()) {
-            return false;
-        }
-        
-        const userId = localStorage.getItem('user_id');
-        const password = sessionStorage.getItem('user_password');
-        
-        // 1. Получаем общий секрет из базы
-        const sharedKeyResult = await eel.get_shared_key_for_chat(userId, currentChatUserId)();
-        if (!sharedKeyResult.success) {
-            // Если общего ключа нет, пытаемся настроить шифрование
-            const setupResult = await setupEcdhEncryption(currentChatUserId);
-            if (!setupResult) {
-                throw new Error('Не удалось настроить шифрование для этого чата');
-            }
-            // Повторно получаем общий ключ
-            const retryResult = await eel.get_shared_key_for_chat(userId, currentChatUserId)();
-            if (!retryResult.success) {
-                throw new Error('Не удалось получить общий ключ после настройки');
-            }
-            sharedKeyResult.shared_secret = retryResult.shared_secret;
-        }
-        
-        // 2. Получаем приватный ключ для вычисления общего секрета на клиенте
-        const privateKeyResult = await eel.get_decrypted_private_key(userId, password)();
-        if (!privateKeyResult.success) {
-            throw new Error('Не удалось получить приватный ключ');
-        }
-        
-        // 3. Получаем публичный ключ собеседника
-        const peerKeyResult = await eel.get_public_key(currentChatUserId)();
-        if (!peerKeyResult.success) {
-            throw new Error('Не удалось получить публичный ключ собеседника');
-        }
-        
-        // 4. Импортируем ключи
-        const privateKey = await ECDHEncryption.importPrivateKeyFromPem(privateKeyResult.private_key);
-        const peerPublicKey = await ECDHEncryption.importPublicKeyFromPem(peerKeyResult.public_key);
-        
-        // 5. Вычисляем общий секрет на клиенте
-        const sharedKey = await ECDHEncryption.deriveSharedSecret(privateKey, peerPublicKey);
-        
-        // 6. Шифруем сообщение
-        const encrypted = await ECDHEncryption.encryptMessage(sharedKey, text);
-        const ciphertextHex = ECDHEncryption.arrayToHex(encrypted.ciphertext);
-        const nonceHex = ECDHEncryption.arrayToHex(encrypted.nonce);
-        
-        // 7. Отправляем на сервер
-        const replyContainer = document.getElementById('reply-container');
-        const isReply = !replyContainer.classList.contains('hidden');
-        const replyToMessageId = isReply ? replyContainer.dataset.messageId : null;
-        
-        const result = await eel.send_ecdh_encrypted_message(
-            userId,
-            currentChatUserId,
-            ciphertextHex,
-            nonceHex,
-            replyToMessageId
-        )();
-        
-        if (result.success) {
-            // Добавляем сообщение в интерфейс
-            const messageData = {
-                id: result.message_id,
-                sender_id: userId,
-                receiver_id: currentChatUserId,
-                text: text,
-                timestamp: result.timestamp,
-                read: result.read,
-                is_encrypted: true
-            };
-            
-            await addMessageToChat(messageData, true, true);
-            updateLastMessageOnUserCard(currentChatUserId, text, true);
-            
-            // Очищаем поле ввода
-            document.getElementById('message-input').value = '';
-            
-            if (isReply) {
-                await clearReplyState();
-            }
-            
-            console.log('Сообщение зашифровано и отправлено с ECDH');
-            return true;
-        } else {
-            throw new Error(result.message);
-        }
-    } catch (error) {
-        console.error('Ошибка отправки ECDH сообщения:', error);
-        alert('Ошибка отправки сообщения: ' + error.message);
-        return false;
-    }
-}
+
 
 ECDHEncryption.importPrivateKeyFromPem = async function(pem) {
     // Удаляем PEM заголовки и преобразуем в base64
@@ -683,7 +588,12 @@ document.getElementById('message-input').addEventListener('keypress', async func
 
         try {
             // Используем ECDH шифрование
-            await sendEcdhEncryptedMessage(text);
+            const sent = await sendEcdhMessage(text);
+            if (!sent) {
+                // Fallback: отправляем обычное сообщение
+                alert('Шифрование недоступно, отправляется обычное сообщение');
+                await sendSecureMessage(text);
+            }
         } catch (error) {
             console.error('Error sending message:', error);
             alert('Ошибка отправки сообщения: ' + error.message);
@@ -692,6 +602,7 @@ document.getElementById('message-input').addEventListener('keypress', async func
         }
     }
 });
+
 async function loadEcdhChatHistory(userId) {
     try {
         const currentUserId = localStorage.getItem('user_id');
@@ -937,46 +848,6 @@ document.getElementById('message-input').addEventListener('keypress', async func
     }
 });
 
-async function processEncryptedMessages(messages, currentUserId, peerUserId) {
-    const messagesContainer = document.getElementById('chat-messages');
-    messagesContainer.innerHTML = '';
-    
-    if (messages && messages.length > 0) {
-        const userPassword = sessionStorage.getItem('user_password');
-        
-        for (const msg of messages) {
-            const isMyMessage = msg.sender_id === currentUserId;
-            let displayText = msg.text || '[Сообщение]';
-            
-            // Если сообщение зашифровано старым методом
-            if (msg.is_encrypted && msg.text && userPassword) {
-                try {
-                    displayText = await MessageEncryption.decryptMessage(msg.text, userPassword);
-                } catch (error) {
-                    console.error('Ошибка дешифрования старого сообщения:', error);
-                    displayText = '[Зашифрованное сообщение]';
-                }
-            }
-            
-            const messageObj = {
-                ...msg,
-                text: displayText
-            };
-            
-            await addMessageToChat(messageObj, isMyMessage, false);
-        }
-        
-        setTimeout(() => {
-            const messagesWrapper = document.getElementById('chat-messages-wrapper');
-            if (messagesWrapper) {
-                messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
-                updateStickyDateHeaders();
-            }
-        }, 100);
-    } else {
-        messagesContainer.innerHTML = '<div class="no-messages">Нет сообщений</div>';
-    }
-}
 
 
 async function decryptEcdhMessage(ciphertextHex, nonceHex, myUserId, peerUserId, password, isMyMessage) {
@@ -1100,102 +971,6 @@ async function decryptEcdhMessage(ciphertextHex, nonceHex, myUserId, peerUserId,
 						console.error('Decryption error:', error)
 						throw error
 					}
-				}
-			}
-
-			async function sendSecureMessage(text) {
-				if (!currentChatUserId || !text.trim()) {
-					return false
-				}
-
-				try {
-					const user_id = localStorage.getItem('user_id')
-					const userPassword = sessionStorage.getItem('user_password')
-
-					if (!userPassword) {
-						throw new Error('Пароль не найден для шифрования')
-					}
-					const replyContainer = document.getElementById('reply-container')
-					const isReply = !replyContainer.classList.contains('hidden')
-					const replyToMessageId = isReply
-						? replyContainer.dataset.messageId
-						: null
-					const encryptedText = await MessageEncryption.encryptMessage(
-						text,
-						userPassword
-					)
-
-					console.log('Сообщение зашифровано, отправка на сервер...')
-					const result = await eel.send_encrypted_message(
-						user_id,
-						currentChatUserId,
-						encryptedText,
-						replyToMessageId
-					)()
-
-					if (result.success) {
-						let repliedMessageData = null
-						if (isReply && replyToMessageId) {
-							try {
-								const repliedMessage = await eel.get_message_data(
-									replyToMessageId
-								)()
-								if (repliedMessage) {
-									let repliedText = repliedMessage.text
-									if (repliedMessage.is_encrypted) {
-										try {
-											repliedText = await MessageEncryption.decryptMessage(
-												repliedMessage.text,
-												userPassword
-											)
-										} catch (decryptError) {
-											console.error(
-												'Ошибка дешифрования ответного сообщения:',
-												decryptError
-											)
-											repliedText = '[Не удалось расшифровать]'
-										}
-									}
-
-									repliedMessageData = {
-										id: repliedMessage.id,
-										sender_id: repliedMessage.sender_id,
-										text: repliedText,
-										is_encrypted: repliedMessage.is_encrypted,
-									}
-								}
-							} catch (error) {
-								console.error('Ошибка получения данных ответа:', error)
-							}
-						}
-						const messageData = {
-							id: result.message_id,
-							sender_id: user_id,
-							receiver_id: currentChatUserId,
-							text: text,
-							timestamp: result.timestamp,
-							read: result.read,
-							is_encrypted: true,
-							reply_to_message_id: replyToMessageId,
-							replied_message: repliedMessageData,
-						}
-						await addMessageToChat(messageData, true, true)
-						updateLastMessageOnUserCard(currentChatUserId, text, true)
-						document.getElementById('message-input').value = ''
-						if (isReply) {
-							await clearReplyState()
-						}
-
-						console.log('Зашифрованное сообщение успешно отправлено')
-						return true
-					} else {
-						alert('Ошибка отправки сообщения: ' + result.message)
-						return false
-					}
-				} catch (error) {
-					console.error('Error sending secure message:', error)
-					alert('Ошибка шифрования сообщения: ' + error.message)
-					return false
 				}
 			}
 
@@ -1391,62 +1166,6 @@ async function decryptLastMessageForAllUsers() {
 					console.error('Ошибка при обновлении последнего сообщения:', error)
 				}
 			}
-
-			async function checkEncryptionKeys() {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					if (!user_id) {
-						console.error('No user ID found')
-						return false
-					}
-					const saltResponse = await eel.get_user_salt(user_id)()
-					if (!saltResponse.success) {
-						console.error('Failed to get salt from server')
-						return false
-					}
-					const userPassword = sessionStorage.getItem('user_password')
-					if (!userPassword) {
-						console.error('No password in sessionStorage')
-						return false
-					}
-					const saltBytes = Uint8Array.from(atob(saltResponse.salt), c =>
-						c.charCodeAt(0)
-					)
-					const newKey = await zkCrypto.deriveKey(userPassword, saltBytes)
-
-					console.log('Keys check result:', testResult)
-
-					if (testResult) {
-						userEncryptionKey = newKey
-						return true
-					}
-
-					return false
-				} catch (error) {
-					console.error('Error checking encryption keys:', error)
-					return false
-				}
-			}
-			function sendAllMedia() {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-				closeMediaModal()
-			}
-
-			function openFileSelector() {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-			}
-
-			function closeMediaModal() {
-			}
-
-			function handleFileSelect(event) {
-				alert('Отправка медиа-файлов отключена в целях безопасности')
-				event.target.value = ''
-			}
-
-			function showMediaUploadProgress() {}
-			function hideMediaUploadProgress() {}
-			function updateMediaUploadProgress() {}
 
 			document.addEventListener('click', function (e) {
 				let userBar = e.target.closest('.user-bar')
@@ -1946,36 +1665,6 @@ function hideEncryptionIndicator() {
 }
 
 
-			async function setupChatEncryption(userId, password) {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					const currentStatus = await checkEncryptionStatus(userId)
-					if (currentStatus) {
-						console.log('Шифрование уже настроено для чата')
-						showEncryptionIndicator()
-						return true
-					}
-					const result = await eel.setup_chat_encryption(
-						user_id,
-						userId,
-						password
-					)()
-
-					if (result.success) {
-						console.log('Шифрование настроено для чата')
-						showEncryptionIndicator()
-						return true
-					} else {
-						console.warn('Не удалось настроить шифрование:', result.message)
-						hideEncryptionIndicator()
-						return false
-					}
-				} catch (error) {
-					console.error('Ошибка настройки шифрования:', error)
-					hideEncryptionIndicator()
-					return false
-				}
-			}
 
 async function openChat(userId) {
     console.log('Открываем чат с пользователем:', userId);
@@ -2143,22 +1832,6 @@ async function openChat(userId) {
     }
 }
 
-			async function preloadMediaForChat(userId) {
-				if (!activeChats[userId]?.messagesData) return
-
-				for (const message of activeChats[userId].messagesData) {
-					if (message.isMedia && !message.mediaData) {
-						try {
-							const response = await eel.get_media_message(message.id)()
-							if (response.success) {
-								message.mediaData = response.media_data
-							}
-						} catch (error) {
-							console.error('Error preloading media:', error)
-						}
-					}
-				}
-			}
 
 			async function updateUserStatus() {
 				if (!currentChatUserId) return
@@ -2277,39 +1950,6 @@ async function openChat(userId) {
 					}
 				} catch (error) {
 					console.error('Ошибка при обновлении статуса прочтения:', error)
-				}
-			}
-
-			async function loadChatHistory() {
-				if (!currentChatUserId) return
-
-				try {
-					const messages = await eel.get_chat_history(
-						localStorage.getItem('user_id'),
-						currentChatUserId
-					)()
-
-					const chatMessages = document.getElementById('chatMessages')
-					chatMessages.innerHTML = ''
-
-					for (const msg of messages) {
-						let displayText = msg.text
-						if (
-							msg.is_encrypted &&
-							msg.sender_id !== localStorage.getItem('user_id')
-						) {
-							displayText = await decryptMessageContent(msg.id)
-						}
-
-						displayMessage({
-							...msg,
-							text: displayText,
-						})
-					}
-
-					scrollChatToBottom()
-				} catch (error) {
-					console.error('Ошибка загрузки истории чата:', error)
 				}
 			}
 
@@ -2746,21 +2386,6 @@ async function openChat(userId) {
 				}
 			}
 
-			async function checkEncryptionStatus(userId) {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					const status = await eel.check_chat_encryption_status(
-						user_id,
-						userId
-					)()
-					console.log('Статус шифрования чата:', status)
-					return status.encrypted
-				} catch (error) {
-					console.error('Ошибка проверки статуса шифрования:', error)
-					return false
-				}
-			}
-
 			async function loadFriends() {
     console.log('=== НАЧАЛО loadFriends ===');
     const user_id = localStorage.getItem('user_id');
@@ -3153,229 +2778,7 @@ async function openChat(userId) {
 						closeMessageContextMenu()
 					})
 
-				async function initializeEncryption() {
-					try {
-						const user_id = localStorage.getItem('user_id')
-						if (!user_id) return false
-						const keyResult = await eel.generate_ecdh_keypair(user_id)()
-						if (!keyResult.success) {
-							console.warn(
-								'Не удалось сгенерировать ключевую пару:',
-								keyResult.message
-							)
-							return false
-						}
 
-						console.log('Ключевая пара ECDH сгенерирована')
-						return true
-					} catch (error) {
-						console.error('Ошибка инициализации шифрования:', error)
-						return false
-					}
-				}
-
-				async function establishSecureConnection(peer_id) {
-					try {
-						const user_id = localStorage.getItem('user_id')
-						const result = await eel.establish_secure_connection(
-							user_id,
-							peer_id
-						)()
-
-						if (result.success) {
-							console.log('Безопасное соединение установлено')
-							encryptionEnabled = true
-							return true
-						} else {
-							console.warn(
-								'Не удалось установить безопасное соединение:',
-								result.message
-							)
-							return false
-						}
-					} catch (error) {
-						console.error('Ошибка установки безопасного соединения:', error)
-						return false
-					}
-				}
-
-				async function debugEncryption() {
-					const user_id = localStorage.getItem('user_id')
-					const peer_id = currentChatUserId
-
-					if (!peer_id) {
-						console.error('Чат не открыт')
-						return
-					}
-
-					console.log('=== ОТЛАДКА ШИФРОВАНИЯ ===')
-					const status = await eel.debug_encryption_status(user_id, peer_id)()
-					console.log('Статус шифрования:', status)
-					const key_data = await eel.get_shared_key(user_id, peer_id)()
-					console.log('Общий ключ:', key_data)
-				}
-
-				async function sendEncryptedMessage(text) {
-					if (!currentChatUserId || !encryptionEnabled) {
-						return await sendRegularMessage(text)
-					}
-
-					try {
-						const user_id = localStorage.getItem('user_id')
-						const result = await eel.send_encrypted_message(
-							user_id,
-							currentChatUserId,
-							text
-						)()
-
-						if (result.success) {
-							const messageData = {
-								id: result.message_id,
-								sender_id: user_id,
-								receiver_id: currentChatUserId,
-								text: text,
-								timestamp: result.timestamp,
-								read: true,
-								is_encrypted: true,
-							}
-
-							await addMessageToChat(messageData, true, true)
-							updateLastMessageOnUserCard(currentChatUserId, text, true)
-							document.getElementById('message-input').value = ''
-
-							return true
-						} else {
-							alert(
-								'Ошибка отправки зашифрованного сообщения: ' + result.message
-							)
-							return false
-						}
-					} catch (error) {
-						console.error('Ошибка отправки зашифрованного сообщения:', error)
-						return false
-					}
-				}
-
-				async function sendRegularMessage(text) {
-					try {
-						const user_id = localStorage.getItem('user_id')
-						const result = await eel.send_message(
-							user_id,
-							currentChatUserId,
-							text
-						)()
-
-						if (result.success) {
-							const messageData = {
-								id: result.message_id,
-								sender_id: user_id,
-								receiver_id: currentChatUserId,
-								text: text,
-								timestamp: result.timestamp,
-								read: result.read,
-							}
-
-							await addMessageToChat(messageData, true, true)
-							updateLastMessageOnUserCard(currentChatUserId, text, true)
-
-							document.getElementById('message-input').value = ''
-							return true
-						} else {
-							alert('Ошибка отправки сообщения: ' + result.message)
-							return false
-						}
-					} catch (error) {
-						console.error('Ошибка отправки сообщения:', error)
-						return false
-					}
-				}
-
-				async function loadZKChatHistory(userId) {
-    console.log('Загрузка истории чата для пользователя:', userId)
-    if (window.isLoadingChat === userId) {
-        console.log('Чат уже загружается, пропускаем:', userId)
-        return
-    }
-
-    try {
-        window.isLoadingChat = userId 
-
-        const user_id = localStorage.getItem('user_id')
-        console.log('Запрашиваем историю чата для:', user_id, 'с:', userId)
-
-        const messages = await eel.get_chat_messages_decrypted(
-            user_id,
-            userId
-        )()
-
-        console.log('Получено сообщений:', messages ? messages.length : 0)
-
-        const messagesContainer = document.getElementById('chat-messages')
-        if (!messagesContainer) {
-            console.error('Контейнер сообщений не найден!')
-            return
-        }
-
-        messagesContainer.innerHTML = ''
-
-        
-        dateHeaders.clear()
-        currentStickyDate = null
-        if (dateHeadersObserver) {
-            dateHeadersObserver.disconnect()
-            dateHeadersObserver = null
-        }
-
-        if (messages && Array.isArray(messages) && messages.length > 0) {
-            console.log('Обрабатываем сообщения:', messages.length)
-
-             
-            for (const msg of messages) {
-                const isMyMessage = msg.sender_id === user_id
-                await addMessageToChat(msg, isMyMessage, false)
-            }
-
-            lastMessageId = messages[messages.length - 1].id
-            console.log('Last message ID установлен:', lastMessageId)
-            activeChats[userId] = {
-                messages: messagesContainer.innerHTML,
-                lastMessageId: lastMessageId,
-                messagesData: messages,
-            }
-
-            setTimeout(() => {
-                initDateHeadersSystem()
-                updateStickyDateHeaders()
-
-                const messagesWrapper = document.getElementById(
-                    'chat-messages-wrapper'
-                )
-                if (messagesWrapper) {
-                    messagesWrapper.scrollTop = messagesWrapper.scrollHeight
-                }
-            }, 0)
-        } else {
-            console.log('Нет сообщений в чате')
-            messagesContainer.innerHTML =
-                '<div class="no-messages">Нет сообщений</div>'
-            lastMessageId = null
-            activeChats[userId] = {
-                messages: messagesContainer.innerHTML,
-                lastMessageId: null,
-                messagesData: [],
-            }
-        }
-    } catch (error) {
-        console.error('Error loading chat history:', error)
-        const messagesContainer = document.getElementById('chat-messages')
-        if (messagesContainer) {
-            messagesContainer.innerHTML =
-                '<div class="error-message">Ошибка загрузки истории сообщений</div>'
-        }
-    } finally {
-        window.isLoadingChat = null
-    }
-}
 
 				async function handleReply() {
 					if (!currentContextMessage) return
@@ -3950,39 +3353,7 @@ async function openChat(userId) {
 			}
 			window.addEventListener('resize', positionPhotoMenu)
 
-			async function initializeUserKey(password) {
-				try {
-					const user_id = localStorage.getItem('user_id')
-					if (!user_id) {
-						throw new Error('User ID not found')
-					}
-					const saltResponse = await eel.get_user_salt(user_id)()
-					if (!saltResponse.success) {
-						throw new Error('Не удалось получить соль пользователя')
-					}
-					localStorage.setItem('user_salt', saltResponse.salt)
-					sessionStorage.setItem('user_password', password)
-					const saltBytes = Uint8Array.from(atob(saltResponse.salt), c =>
-						c.charCodeAt(0)
-					)
-					userEncryptionKey = await zkCrypto.deriveKey(password, saltBytes)
 
-					if (!testResult) {
-						throw new Error('Ключ не работает')
-					}
-
-					localStorage.setItem('zk_initialized', 'true')
-					console.log('ZK система инициализирована успешно')
-					return true
-				} catch (error) {
-					console.error('Error initializing user key:', error)
-					localStorage.removeItem('zk_initialized')
-					localStorage.removeItem('user_salt')
-					sessionStorage.removeItem('user_password')
-					userEncryptionKey = null
-					return false
-				}
-			}
 		</script>
 		<div class="modal-overlay hidden" id="delete-message-overlay"></div>
 		<div class="delete-message-modal hidden" id="delete-message-modal">
