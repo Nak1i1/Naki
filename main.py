@@ -597,17 +597,26 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
 def initialize_user_encryption(user_id, password):
     """Инициализация шифрования для пользователя с паролем"""
     try:
-        
+        # Проверяем, есть ли уже ключи
         existing_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if existing_keys:
             return {"success": True, "message": "Ключи уже существуют"}
         
+        # Генерируем новые ключи
+        result = generate_ecdh_keypair(user_id, password)
         
-        return generate_ecdh_keypair(user_id, password)
+        # Если не удалось сгенерировать ключи, все равно возвращаем success=True
+        # чтобы не блокировать вход в приложение
+        if not result["success"]:
+            logger.warning(f"Не удалось сгенерировать ECDH ключи для пользователя {user_id}: {result['message']}")
+            return {"success": True, "message": "Продолжаем без ECDH шифрования", "ecdh_disabled": True}
+        
+        return result
         
     except Exception as e:
         logger.error(f"Ошибка инициализации шифрования: {e}")
-        return {"success": False, "message": str(e)}
+        # Возвращаем успех, чтобы не блокировать вход
+        return {"success": True, "message": f"Продолжаем без ECDH шифрования: {str(e)}", "ecdh_disabled": True}
     
     
     
@@ -906,22 +915,42 @@ def get_last_message(user1_id, user2_id):
         }, sort=[("timestamp", -1)])
         
         if message:
-             
-            if message.get('is_encrypted', False):
-                text = "🔒 Зашифрованное сообщение"
-            else:
-                text = message.get("text", "[Сообщение]")
-            
-            return {
-                "text": text,
+            # Получаем все данные сообщения для дешифрования
+            message_data = {
+                "id": str(message["_id"]),
                 "sender_id": str(message["sender_id"]),
                 "timestamp": message["timestamp"].isoformat(),
-                "is_encrypted": message.get("is_encrypted", False)
+                "is_encrypted": message.get("is_encrypted", False),
+                "encryption_type": message.get("encryption_type")
             }
+            
+            # Добавляем данные шифрования в зависимости от типа
+            if message.get("is_encrypted"):
+                if message.get("encryption_type") == "ECDH-AES-GCM":
+                    # Для ECDH сообщений
+                    message_data.update({
+                        "ciphertext": message.get("ciphertext"),
+                        "nonce": message.get("nonce"),
+                        "text": message.get("ciphertext", "")  # Используем ciphertext для ECDH
+                    })
+                else:
+                    # Для старых зашифрованных сообщений
+                    message_data.update({
+                        "text": message.get("encrypted_text", message.get("text", "[Сообщение]"))
+                    })
+            else:
+                # Для незашифрованных сообщений
+                message_data.update({
+                    "text": message.get("text", "[Сообщение]")
+                })
+            
+            return message_data
         return None
     except Exception as e:
         logger.error(f"Error getting last message: {e}")
         return None
+    
+    
 @eel.expose
 def edit_message(message_id, new_text):
     try:
