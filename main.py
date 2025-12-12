@@ -15,22 +15,17 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-import secrets
-import os
-
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
-
 
 CURVE = ec.SECP256R1()
 HKDF_INFO = b'messenger_key_derivation'
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
-    """Создание ключа из пароля пользователя"""
+    """Создание криптографического ключа из пароля пользователя с использованием PBKDF2"""
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -40,26 +35,22 @@ def derive_key_from_password(password: str, salt: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(password.encode()))
 
 def encrypt_private_key(private_key_pem: str, password: str) -> dict:
-    """Шифрование приватного ключа"""
+    """Шифрование приватного ключа с помощью пароля пользователя для безопасного хранения"""
     salt = os.urandom(16)
     key = derive_key_from_password(password, salt)
     fernet = Fernet(key)
-    
     encrypted_key = fernet.encrypt(private_key_pem.encode())
-    
     return {
         'encrypted_private_key': base64.b64encode(encrypted_key).decode(),
         'salt': base64.b64encode(salt).decode()
     }
 
 def decrypt_private_key(encrypted_data: dict, password: str) -> str:
-    """Дешифрование приватного ключа"""
+    """Дешифрование и восстановление приватного ключа из зашифрованного хранилища"""
     salt = base64.b64decode(encrypted_data['salt'])
     encrypted_key = base64.b64decode(encrypted_data['encrypted_private_key'])
-    
     key = derive_key_from_password(password, salt)
     fernet = Fernet(key)
-    
     return fernet.decrypt(encrypted_key).decode()
 
 try:
@@ -93,26 +84,22 @@ users_collection.create_index([("email_hash", 1)], unique=True)
 users_collection.create_index([("nickname", 1)])
 
 def get_local_time():
+    """Получение текущего времени в локальном часовом поясе в формате строки"""
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 @eel.expose
 def get_current_time():
-    """Получение текущего времени для клиента"""
+    """Получение текущего времени для клиента в формате ISO"""
     return datetime.now().astimezone().isoformat()
 
 eel.init("web")
 
-
-
-
 @eel.expose
 def generate_ecdh_keypair(user_id, password):
-    """Генерация ECDH ключевой пары с шифрованием приватного ключа"""
+    """Генерация ECDH ключевой пары с шифрованием приватного ключа пользовательским паролем"""
     try:
-        
         private_key = ec.generate_private_key(CURVE)
         public_key = private_key.public_key()
-        
         
         private_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -125,9 +112,7 @@ def generate_ecdh_keypair(user_id, password):
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
         
-        
         encrypted_private = encrypt_private_key(private_pem, password)
-        
         
         ecdh_keys_collection.update_one(
             {"user_id": ObjectId(user_id)},
@@ -144,14 +129,13 @@ def generate_ecdh_keypair(user_id, password):
         
         logger.info(f"Ключевая пара сгенерирована для пользователя {user_id}")
         return {"success": True, "public_key": public_pem}
-        
     except Exception as e:
         logger.error(f"Ошибка генерации ключей: {e}")
         return {"success": False, "message": str(e)}
-    
+
 @eel.expose
 def get_decrypted_private_key(user_id, password):
-    """Получение дешифрованного приватного ключа"""
+    """Получение дешифрованного приватного ключа из базы данных с проверкой пароля"""
     try:
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data:
@@ -164,56 +148,45 @@ def get_decrypted_private_key(user_id, password):
         
         private_pem = decrypt_private_key(encrypted_data, password)
         return {"success": True, "private_key": private_pem}
-        
     except Exception as e:
         logger.error(f"Ошибка дешифрования приватного ключа: {e}")
         return {"success": False, "message": "Неверный пароль"}
-    
-    
 
 @eel.expose
 def get_public_key(user_id):
-    """Получение публичного ключа пользователя"""
+    """Получение публичного ключа пользователя для обмена ключами с другими пользователями"""
     try:
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data or 'public_key' not in key_data:
             return {"success": False, "message": "Публичный ключ не найден"}
-        
         return {"success": True, "public_key": key_data['public_key']}
-        
     except Exception as e:
         logger.error(f"Ошибка получения публичного ключа: {e}")
         return {"success": False, "message": str(e)}
 
 @eel.expose
 def compute_shared_secret(user_id, peer_public_key_pem, password):
-    """Вычисление общего секрета с использованием пароля для дешифрования приватного ключа"""
+    """Вычисление общего секрета между двумя пользователями через ECDH для генерации AES-GCM ключа"""
     try:
-        # Получаем данные ключей пользователя
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data:
             return {"success": False, "message": "Ключевая пара не найдена"}
         
-        # Дешифруем приватный ключ с помощью пароля
         decryption_result = get_decrypted_private_key(user_id, password)
         if not decryption_result['success']:
             return decryption_result
         
-        # Загружаем приватный ключ
         private_key = serialization.load_pem_private_key(
             decryption_result['private_key'].encode('utf-8'),
             password=None
         )
         
-        # Загружаем публичный ключ собеседника
         peer_public_key = serialization.load_pem_public_key(
             peer_public_key_pem.encode('utf-8')
         )
         
-        # Вычисляем общий секрет
         shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
         
-        # Деривируем ключ для AES-GCM
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
             length=32,
@@ -221,14 +194,12 @@ def compute_shared_secret(user_id, peer_public_key_pem, password):
             info=HKDF_INFO
         ).derive(shared_secret)
         
-        # Находим ID собеседника по публичному ключу
         peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
         if not peer_key_data:
             return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
-            
+        
         peer_id = peer_key_data["user_id"]
         
-        # Сохраняем общий ключ в базе (только для отладки, в production лучше не хранить)
         shared_keys_collection.update_one(
             {
                 "user_id": ObjectId(user_id),
@@ -245,14 +216,13 @@ def compute_shared_secret(user_id, peer_public_key_pem, password):
         
         logger.info(f"Вычислен общий секрет для пользователя {user_id}")
         return {"success": True, "shared_secret": derived_key.hex()}
-        
     except Exception as e:
         logger.error(f"Ошибка вычисления общего секрета: {e}")
         return {"success": False, "message": str(e)}
-    
+
 @eel.expose
 def mark_chat_messages_as_read(user_id, peer_id):
-    """Пометить все сообщения в чате как прочитанные"""
+    """Пометить все непрочитанные сообщения из чата с определённым пользователем как прочитанные"""
     try:
         result = messages_collection.update_many(
             {
@@ -267,11 +237,11 @@ def mark_chat_messages_as_read(user_id, peer_id):
         return {"success": True, "count": result.modified_count}
     except Exception as e:
         logger.error(f"Ошибка пометки сообщений как прочитанных: {e}")
-        return {"success": False, "message": str(e)}   
-    
+        return {"success": False, "message": str(e)}
+
 @eel.expose
 def get_shared_key_for_chat(user_id, peer_id):
-    """Получение общего ключа для чата (только для отладки)"""
+    """Получение сохранённого общего ключа для чата между двумя пользователями (отладочная функция)"""
     try:
         key_data = shared_keys_collection.find_one({
             "$or": [
@@ -288,14 +258,13 @@ def get_shared_key_for_chat(user_id, peer_id):
             }
         else:
             return {"success": False, "message": "Общий ключ не найден"}
-            
     except Exception as e:
         logger.error(f"Ошибка получения общего ключа: {e}")
         return {"success": False, "message": str(e)}
 
 @eel.expose
 def get_ecdh_chat_history(user_id, peer_id):
-    """Получение истории чата с ECDH шифрованием"""
+    """Получение полной истории зашифрованного чата с поддержкой ответов и удалений для конкретного пользователя"""
     try:
         messages = messages_collection.find({
             "$or": [
@@ -307,11 +276,10 @@ def get_ecdh_chat_history(user_id, peer_id):
         
         messages_list = []
         for message in messages:
-            # Пропускаем сообщения, удаленные для текущего пользователя
             deleted_for = message.get("deleted_for", [])
             if ObjectId(user_id) in deleted_for:
                 continue
-                
+            
             message_data = {
                 "id": str(message["_id"]),
                 "sender_id": str(message["sender_id"]),
@@ -324,10 +292,8 @@ def get_ecdh_chat_history(user_id, peer_id):
                 "encryption_type": message.get("encryption_type", "ECDH-AES-GCM")
             }
             
-            # Добавляем информацию об ответах
             if "reply_to_message_id" in message:
                 message_data["reply_to_message_id"] = str(message["reply_to_message_id"])
-                
                 try:
                     replied_message = messages_collection.find_one({"_id": message["reply_to_message_id"]})
                     if replied_message:
@@ -345,20 +311,17 @@ def get_ecdh_chat_history(user_id, peer_id):
             "success": True,
             "messages": messages_list
         }
-        
     except Exception as e:
         logger.error(f"Ошибка получения ECDH истории чата: {e}")
         return {"success": False, "message": str(e)}
-    
+
 @eel.expose
 def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_hex, reply_to_message_id=None):
-    """Сохранение сообщения, зашифрованного с помощью ECDH+AES-GCM"""
+    """Сохранение сообщения, зашифрованного с помощью ECDH+AES-GCM алгоритма в базу данных"""
     try:
-        # Проверяем валидность данных
         if not ciphertext_hex or not nonce_hex:
             return {"success": False, "message": "Отсутствуют данные шифрования"}
         
-        # Проверяем длину nonce (должен быть 12 байт для AES-GCM)
         nonce_bytes = bytes.fromhex(nonce_hex)
         if len(nonce_bytes) != 12:
             return {"success": False, "message": "Неверный размер nonce"}
@@ -389,16 +352,13 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
             "timestamp": datetime.utcnow().isoformat(),
             "read": read_status
         }
-        
     except Exception as e:
         logger.error(f"Ошибка сохранения ECDH зашифрованного сообщения: {e}")
         return {"success": False, "message": str(e)}
-    
-    
-    
+
 @eel.expose
 def get_shared_key(user_id, peer_id):
-    """Получение общего ключа для чата"""
+    """Получение общего ключа для чата между пользователями из базы данных"""
     try:
         key_data = shared_keys_collection.find_one({
             "$or": [
@@ -415,19 +375,13 @@ def get_shared_key(user_id, peer_id):
             }
         else:
             return {"success": False, "message": "Общий ключ не найден"}
-            
     except Exception as e:
         logger.error(f"Ошибка получения общего ключа: {e}")
         return {"success": False, "message": str(e)}
-    
-    
-    
-
-
 
 @eel.expose
 def get_encrypted_chat_history(user_id, peer_id):
-    """Получение истории зашифрованного чата (с информацией об ответах)"""
+    """Получение полной истории зашифрованного чата с информацией об ответах и статусе прочтения"""
     try:
         messages = messages_collection.find({
             "$or": [
@@ -438,11 +392,10 @@ def get_encrypted_chat_history(user_id, peer_id):
         
         messages_list = []
         for message in messages:
-            
             deleted_for = message.get("deleted_for", [])
             if ObjectId(user_id) in deleted_for:
                 continue
-                
+            
             message_data = {
                 "id": str(message["_id"]),
                 "sender_id": str(message["sender_id"]),
@@ -452,11 +405,8 @@ def get_encrypted_chat_history(user_id, peer_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            
             if "reply_to_message_id" in message:
                 message_data["reply_to_message_id"] = str(message["reply_to_message_id"])
-                
-                
                 try:
                     replied_message = messages_collection.find_one({"_id": message["reply_to_message_id"]})
                     if replied_message:
@@ -469,7 +419,6 @@ def get_encrypted_chat_history(user_id, peer_id):
                 except Exception as e:
                     logger.error(f"Ошибка получения данных ответного сообщения: {e}")
             
-            
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "")
             else:
@@ -481,22 +430,20 @@ def get_encrypted_chat_history(user_id, peer_id):
             "success": True,
             "messages": messages_list
         }
-        
     except Exception as e:
         logger.error(f"Ошибка получения зашифрованной истории: {e}")
         return {"success": False, "message": str(e)}
- 
-    
-    
+
 @eel.expose
 def register_user(nickname, email, password):
+    """Регистрация нового пользователя с сохранением хэшей email и пароля в базу данных"""
     try:
         email_normalized = email.lower().strip()
         email_hash = hashlib.sha256(email_normalized.encode()).hexdigest()
         
         if users_collection.find_one({"email_hash": email_hash}):
             return {"success": False, "message": "Пользователь с таким email уже существует"}
-
+        
         user_data = {
             "nickname": nickname,
             "email_hash": email_hash,
@@ -505,13 +452,13 @@ def register_user(nickname, email, password):
             "friends": [],
             "last_online": datetime.utcnow()
         }
-
-        result = users_collection.insert_one(user_data)
-        logger.info(f"Зарегистрирован новый пользователь: {nickname}")
         
+        result = users_collection.insert_one(user_data)
+        
+        logger.info(f"Зарегистрирован новый пользователь: {nickname}")
         return {
-            "success": True, 
-            "message": "Регистрация успешна!", 
+            "success": True,
+            "message": "Регистрация успешна!",
             "user_id": str(result.inserted_id)
         }
     except Exception as e:
@@ -520,6 +467,7 @@ def register_user(nickname, email, password):
 
 @eel.expose
 def login_user(email, password):
+    """Проверка учётных данных пользователя и вход в систему с обновлением времени последней активности"""
     try:
         email_normalized = email.lower().strip()
         email_hash = hashlib.sha256(email_normalized.encode()).hexdigest()
@@ -530,7 +478,7 @@ def login_user(email, password):
         
         if not user:
             return {"success": False, "message": "Пользователь не найден"}
-
+        
         logger.info(f"USER FOUND: {user['_id']}")
         logger.info(f"USER FIELDS: {list(user.keys())}")
         
@@ -539,14 +487,15 @@ def login_user(email, password):
             return {"success": False, "message": "Ошибка данных пользователя"}
         
         password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
         if user["password_hash"] != password_hash:
             return {"success": False, "message": "Неверный пароль"}
-
+        
         users_collection.update_one(
             {"_id": user["_id"]},
             {"$set": {"last_online": datetime.utcnow()}}
         )
-
+        
         logger.info(f"Пользователь {user['nickname']} вошел в систему")
         return {
             "success": True,
@@ -560,21 +509,19 @@ def login_user(email, password):
 
 @eel.expose
 def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_message_id=None):
-    """Сохранение уже зашифрованного сообщения с поддержкой ответов"""
+    """Сохранение уже зашифрованного сообщения с поддержкой ответов на предыдущие сообщения"""
     try:
-        
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
-            "encrypted_text": encrypted_text,  
+            "encrypted_text": encrypted_text,
             "is_encrypted": True,
             "timestamp": datetime.utcnow(),
             "read": read_status
         }
-        
         
         if reply_to_message_id:
             message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
@@ -588,66 +535,51 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
             "timestamp": datetime.utcnow().isoformat(),
             "read": read_status
         }
-        
     except Exception as e:
         logger.error(f"Ошибка сохранения зашифрованного сообщения: {e}")
         return {"success": False, "message": str(e)}
-    
+
 @eel.expose
 def initialize_user_encryption(user_id, password):
-    """Инициализация шифрования для пользователя с паролем"""
+    """Инициализация шифрования для пользователя с проверкой существования ключей и их генерацией"""
     try:
-        # Проверяем, есть ли уже ключи
         existing_keys = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if existing_keys:
             return {"success": True, "message": "Ключи уже существуют"}
         
-        # Генерируем новые ключи
         result = generate_ecdh_keypair(user_id, password)
         
-        # Если не удалось сгенерировать ключи, все равно возвращаем success=True
-        # чтобы не блокировать вход в приложение
         if not result["success"]:
             logger.warning(f"Не удалось сгенерировать ECDH ключи для пользователя {user_id}: {result['message']}")
             return {"success": True, "message": "Продолжаем без ECDH шифрования", "ecdh_disabled": True}
         
         return result
-        
     except Exception as e:
         logger.error(f"Ошибка инициализации шифрования: {e}")
-        # Возвращаем успех, чтобы не блокировать вход
         return {"success": True, "message": f"Продолжаем без ECDH шифрования: {str(e)}", "ecdh_disabled": True}
-    
-    
-    
+
 @eel.expose
 def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
-    """Вычисление общего секрета с использованием пароля для дешифрования приватного ключа"""
+    """Вычисление общего секрета между пользователями с дешифрованием приватного ключа паролем"""
     try:
-        
         key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
         if not key_data:
             return {"success": False, "message": "Ключевая пара не найдена"}
         
-        
         decryption_result = get_decrypted_private_key(user_id, password)
         if not decryption_result['success']:
             return decryption_result
-        
         
         private_key = serialization.load_pem_private_key(
             decryption_result['private_key'].encode('utf-8'),
             password=None
         )
         
-        
         peer_public_key = serialization.load_pem_public_key(
             peer_public_key_pem.encode('utf-8')
         )
         
-        
         shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-        
         
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
@@ -656,13 +588,11 @@ def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
             info=HKDF_INFO
         ).derive(shared_secret)
         
-        
         peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
         if not peer_key_data:
             return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
-            
-        peer_id = peer_key_data["user_id"]
         
+        peer_id = peer_key_data["user_id"]
         
         shared_keys_collection.update_one(
             {
@@ -680,18 +610,14 @@ def compute_shared_secret_with_password(user_id, peer_public_key_pem, password):
         
         logger.info(f"Вычислен общий секрет для пользователя {user_id}")
         return {"success": True, "shared_secret": derived_key.hex()}
-        
     except Exception as e:
         logger.error(f"Ошибка вычисления общего секрета: {e}")
         return {"success": False, "message": str(e)}
-    
 
-    
 @eel.expose
 def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
-    """Отправка обычного незашифрованного сообщения с поддержкой ответов"""
+    """Отправка обычного незашифрованного текстового сообщения с поддержкой ответов"""
     try:
-        
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
@@ -701,9 +627,8 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
             "text": text,
             "is_encrypted": False,
             "timestamp": datetime.utcnow(),
-            "read": read_status  
+            "read": read_status
         }
-        
         
         if reply_to_message_id:
             message_data["reply_to_message_id"] = ObjectId(reply_to_message_id)
@@ -717,15 +642,13 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
             "timestamp": datetime.utcnow().isoformat(),
             "read": read_status
         }
-        
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         return {"success": False, "message": str(e)}
-    
 
-    
 @eel.expose
 def get_user_data(user_id):
+    """Получение основных данных пользователя включая ID, никнейм, список друзей и время последней активности"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         if user:
@@ -743,6 +666,7 @@ def get_user_data(user_id):
 
 @eel.expose
 def search_users(search_term, current_user_id):
+    """Поиск пользователей по нику с исключением текущего пользователя и ограничением результатов"""
     try:
         users = users_collection.find({
             "nickname": {"$regex": f"^{search_term}", "$options": "i"},
@@ -760,6 +684,7 @@ def search_users(search_term, current_user_id):
 
 @eel.expose
 def add_friend(current_user_id, friend_id):
+    """Добавление пользователя в список друзей с двусторонней связью и проверками"""
     try:
         if current_user_id == friend_id:
             return {"success": False, "message": "Нельзя добавить самого себя в друзья"}
@@ -777,6 +702,7 @@ def add_friend(current_user_id, friend_id):
             {"_id": ObjectId(current_user_id)},
             {"$addToSet": {"friends": ObjectId(friend_id)}}
         )
+        
         users_collection.update_one(
             {"_id": ObjectId(friend_id)},
             {"$addToSet": {"friends": ObjectId(current_user_id)}}
@@ -790,6 +716,7 @@ def add_friend(current_user_id, friend_id):
 
 @eel.expose
 def remove_friend(current_user_id, friend_id):
+    """Удаление пользователя из списка друзей с разрывом двусторонней связи"""
     try:
         current_user = users_collection.find_one({"_id": ObjectId(current_user_id)})
         friend_user = users_collection.find_one({"_id": ObjectId(friend_id)})
@@ -804,6 +731,7 @@ def remove_friend(current_user_id, friend_id):
             {"_id": ObjectId(current_user_id)},
             {"$pull": {"friends": ObjectId(friend_id)}}
         )
+        
         users_collection.update_one(
             {"_id": ObjectId(friend_id)},
             {"$pull": {"friends": ObjectId(current_user_id)}}
@@ -817,7 +745,7 @@ def remove_friend(current_user_id, friend_id):
 
 @eel.expose
 def get_chat_history(user_id, peer_user_id):
-    """Получение истории чата"""
+    """Получение полной истории чата между двумя пользователями с сортировкой по времени"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         peer_user = users_collection.find_one({"_id": ObjectId(peer_user_id)})
@@ -848,13 +776,13 @@ def get_chat_history(user_id, peer_user_id):
             "success": True,
             "messages": messages_list
         }
-        
     except Exception as e:
         logger.error(f"Ошибка получения истории чата: {e}")
         return {"success": False, "message": str(e)}
 
 @eel.expose
 def check_new_messages(user_id, last_message_id=None):
+    """Проверка новых входящих сообщений для пользователя и их пометка как прочитанные"""
     try:
         query = {
             "receiver_id": ObjectId(user_id),
@@ -863,12 +791,12 @@ def check_new_messages(user_id, last_message_id=None):
         
         if not last_message_id:
             return []
-            
+        
         query["_id"] = {"$gt": ObjectId(last_message_id)}
         
         messages_cursor = messages_collection.find(query).sort("timestamp", 1)
         messages = list(messages_cursor)
-
+        
         if messages:
             messages_collection.update_many(
                 {"_id": {"$in": [msg["_id"] for msg in messages]}},
@@ -886,6 +814,7 @@ def check_new_messages(user_id, last_message_id=None):
                 "read": True
             }
             result.append(m)
+        
         return result
     except Exception as e:
         logger.error(f"Ошибка проверки новых сообщений: {e}")
@@ -893,6 +822,7 @@ def check_new_messages(user_id, last_message_id=None):
 
 @eel.expose
 def update_last_online(user_id):
+    """Обновление времени последней активности пользователя в текущий момент"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
@@ -905,6 +835,7 @@ def update_last_online(user_id):
 
 @eel.expose
 def get_last_message(user1_id, user2_id):
+    """Получение последнего сообщения в чате между двумя пользователями с полной информацией"""
     try:
         message = messages_collection.find_one({
             "$or": [
@@ -915,7 +846,6 @@ def get_last_message(user1_id, user2_id):
         }, sort=[("timestamp", -1)])
         
         if message:
-            # Получаем все данные сообщения для дешифрования
             message_data = {
                 "id": str(message["_id"]),
                 "sender_id": str(message["sender_id"]),
@@ -924,35 +854,32 @@ def get_last_message(user1_id, user2_id):
                 "encryption_type": message.get("encryption_type")
             }
             
-            # Добавляем данные шифрования в зависимости от типа
             if message.get("is_encrypted"):
                 if message.get("encryption_type") == "ECDH-AES-GCM":
-                    # Для ECDH сообщений
                     message_data.update({
                         "ciphertext": message.get("ciphertext"),
                         "nonce": message.get("nonce"),
-                        "text": message.get("ciphertext", "")  # Используем ciphertext для ECDH
+                        "text": message.get("ciphertext", "")
                     })
                 else:
-                    # Для старых зашифрованных сообщений
                     message_data.update({
                         "text": message.get("encrypted_text", message.get("text", "[Сообщение]"))
                     })
             else:
-                # Для незашифрованных сообщений
                 message_data.update({
                     "text": message.get("text", "[Сообщение]")
                 })
             
             return message_data
+        
         return None
     except Exception as e:
         logger.error(f"Error getting last message: {e}")
         return None
-    
-    
+
 @eel.expose
 def edit_message(message_id, new_text):
+    """Редактирование текста уже отправленного сообщения в базе данных"""
     try:
         result = messages_collection.update_one(
             {"_id": ObjectId(message_id)},
@@ -970,6 +897,7 @@ def edit_message(message_id, new_text):
 
 @eel.expose
 def get_friends(user_id):
+    """Получение полного списка друзей пользователя с их данными"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         if user:
@@ -991,6 +919,7 @@ def get_friends(user_id):
 
 @eel.expose
 def get_all_users():
+    """Получение списка всех пользователей в системе с анонимизированными данными"""
     try:
         users = users_collection.find()
         user_data = []
@@ -1007,6 +936,7 @@ def get_all_users():
 
 @eel.expose
 def delete_message(message_id):
+    """Удаление сообщения из базы данных с проверкой прав доступа"""
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if not message:
@@ -1029,7 +959,7 @@ def delete_message(message_id):
 
 @eel.expose
 def save_reply_state(user_id, chat_id, message_id):
-    """Сохранение состояния ответа для конкретного чата"""
+    """Сохранение состояния ответа для конкретного чата в профиль пользователя"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
@@ -1041,6 +971,7 @@ def save_reply_state(user_id, chat_id, message_id):
             }},
             upsert=True
         )
+        
         logger.info(f"Состояние ответа сохранено для пользователя {user_id}, чат {chat_id}")
         return {"success": True}
     except Exception as e:
@@ -1049,15 +980,12 @@ def save_reply_state(user_id, chat_id, message_id):
 
 @eel.expose
 def get_reply_state(user_id, chat_id):
-    """Получение состояния ответа для конкретного чата"""
+    """Получение сохранённого состояния ответа для конкретного чата с проверкой устарелости"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         if user and "reply_states" in user and chat_id in user["reply_states"]:
             reply_state = user["reply_states"][chat_id]
-            
-            
             if (datetime.utcnow() - reply_state["timestamp"]).total_seconds() > 4 * 3600:
-                
                 users_collection.update_one(
                     {"_id": ObjectId(user_id)},
                     {"$unset": {f"reply_states.{chat_id}": ""}}
@@ -1068,6 +996,7 @@ def get_reply_state(user_id, chat_id):
                 "success": True,
                 "message_id": reply_state["message_id"]
             }
+        
         return {"success": False, "message": "Состояние ответа не найдено"}
     except Exception as e:
         logger.error(f"Ошибка получения состояния ответа: {e}")
@@ -1075,12 +1004,13 @@ def get_reply_state(user_id, chat_id):
 
 @eel.expose
 def clear_reply_state(user_id, chat_id):
-    """Очистка состояния ответа для конкретного чата"""
+    """Очистка состояния ответа для конкретного чата при отмене ответа"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$unset": {f"reply_states.{chat_id}": ""}}
         )
+        
         logger.info(f"Состояние ответа очищено для пользователя {user_id}, чат {chat_id}")
         return {"success": True}
     except Exception as e:
@@ -1089,12 +1019,14 @@ def clear_reply_state(user_id, chat_id):
 
 @eel.expose
 def save_draft_message(user_id, chat_id, text):
+    """Сохранение черновика сообщения для автосохранения несправленного текста"""
     try:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$set": {f"drafts.{chat_id}": {"text": text, "timestamp": datetime.utcnow()}}},
             upsert=True
         )
+        
         return {"success": True}
     except Exception as e:
         logger.error(f"Ошибка сохранения черновика: {e}")
@@ -1102,18 +1034,20 @@ def save_draft_message(user_id, chat_id, text):
 
 @eel.expose
 def get_draft_message(user_id, chat_id):
+    """Получение сохранённого черновика сообщения с проверкой срока действия"""
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)})
         if user and "drafts" in user and chat_id in user["drafts"]:
             draft = user["drafts"][chat_id]
-            
             if (datetime.utcnow() - draft["timestamp"]).total_seconds() > 4 * 3600:
                 users_collection.update_one(
                     {"_id": ObjectId(user_id)},
                     {"$unset": {f"drafts.{chat_id}": ""}}
                 )
                 return None
+            
             return draft["text"]
+        
         return None
     except Exception as e:
         logger.error(f"Ошибка получения черновика: {e}")
@@ -1127,6 +1061,7 @@ def clear_draft_message(user_id, chat_id):
             {"_id": ObjectId(user_id)},
             {"$unset": {f"drafts.{chat_id}": ""}}
         )
+        
         logger.info(f"Черновик очищен для пользователя {user_id}, чат {chat_id}")
         return {"success": True}
     except Exception as e:
@@ -1135,6 +1070,7 @@ def clear_draft_message(user_id, chat_id):
 
 @eel.expose
 def check_message_read_status(message_ids):
+    """Проверка статуса прочтения для группы сообщений по их ID"""
     try:
         messages = messages_collection.find({
             "_id": {"$in": [ObjectId(id) for id in message_ids]}
@@ -1147,6 +1083,7 @@ def check_message_read_status(message_ids):
 
 @eel.expose
 def mark_messages_as_read(sender_id, receiver_id):
+    """Пометка всех непрочитанных сообщений от отправителя как прочитанные"""
     try:
         result = messages_collection.update_many(
             {
@@ -1156,6 +1093,7 @@ def mark_messages_as_read(sender_id, receiver_id):
             },
             {"$set": {"read": True}}
         )
+        
         return {"success": True, "count": result.modified_count}
     except Exception as e:
         logger.error(f"Ошибка пометки сообщений как прочитанных: {e}")
@@ -1163,10 +1101,12 @@ def mark_messages_as_read(sender_id, receiver_id):
 
 @eel.expose
 def get_current_user_id():
+    """Получение ID текущего вошедшего пользователя из сессии"""
     return ""
 
 @eel.expose
 def delete_message_for_me(user_id, message_id):
+    """Удаление сообщения только для конкретного пользователя без удаления для других"""
     try:
         result = messages_collection.update_one(
             {"_id": ObjectId(message_id)},
@@ -1175,6 +1115,7 @@ def delete_message_for_me(user_id, message_id):
         
         if result.modified_count > 0:
             return {"success": True, "message": "Сообщение удалено только для вас"}
+        
         return {"success": False, "message": "Сообщение уже было удалено"}
     except Exception as e:
         logger.error(f"Ошибка удаления сообщения: {e}")
@@ -1182,6 +1123,7 @@ def delete_message_for_me(user_id, message_id):
 
 @eel.expose
 def get_message_data(message_id):
+    """Получение полных данных конкретного сообщения по его ID"""
     try:
         message = messages_collection.find_one({"_id": ObjectId(message_id)})
         if message:
@@ -1192,35 +1134,21 @@ def get_message_data(message_id):
                 "is_encrypted": message.get("is_encrypted", False)
             }
             
-            
             if message.get("is_encrypted"):
                 message_data["text"] = message.get("encrypted_text", "[Зашифрованное сообщение]")
             else:
                 message_data["text"] = message.get("text", "[Сообщение]")
-                
+            
             return message_data
+        
         return None
     except Exception as e:
         logger.error(f"Ошибка получения данных сообщения: {e}")
         return None
 
-@eel.expose
-def check_voice_messages_listened_status(message_ids):
-    """Проверка статуса прослушивания голосовых сообщений"""
-    try:
-        messages = messages_collection.find({
-            "_id": {"$in": [ObjectId(id) for id in message_ids]}
-        })
-        
-        return {str(msg["_id"]): msg.get("listened", False) for msg in messages}
-    except Exception as e:
-        logger.error(f"Ошибка проверки статуса прослушивания: {e}")
-        return {}
-    
-    
-
 
 if __name__ == '__main__':
+    """Точка входа приложения с инициализацией веб-интерфейса на указанном порту"""
     try:
         import sys
         port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000

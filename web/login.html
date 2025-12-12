@@ -69,6 +69,11 @@
 				const loginForm = document.getElementById('login-form')
 				const messageDiv = document.getElementById('message')
 
+				
+
+				// Показ сообщения
+
+
 				function showMessage(text, type) {
 					messageDiv.textContent = text
 					messageDiv.className = type
@@ -78,6 +83,11 @@
 						messageDiv.classList.add('hidden')
 					}, 3000)
 				}
+
+				
+
+				// Переключение формы
+
 
 				function switchForm(formType) {
 					if (formType === 'register') {
@@ -114,6 +124,11 @@
 					.addEventListener('keypress', function (e) {
 						if (e.key === 'Enter') login()
 					})
+
+				
+
+				// Регистрация пользователя
+
 
 				async function register() {
 					const nickname = document.getElementById('reg-nickname').value.trim()
@@ -170,6 +185,11 @@
 						console.error('Registration error:', error)
 					}
 				}
+
+				
+
+				// Вход в систему
+
 
 				async function login() {
 					const email = document.getElementById('login-email').value.trim()
