@@ -448,7 +448,7 @@
 				static async encryptMessage(sharedKey, plaintext) {
 					const encoder = new TextEncoder()
 					const encoded = encoder.encode(plaintext)
-					const iv = window.crypto.getRandomValues(new Uint8Array(12)) // 12 байт для AES-GCM
+					const iv = window.crypto.getRandomValues(new Uint8Array(12))
 
 					const ciphertext = await window.crypto.subtle.encrypt(
 						{
@@ -664,6 +664,7 @@
 					if (!userId || !userPassword) {
 						throw new Error('Необходима аутентификация')
 					}
+
 					let sentWithECDH = false
 					if (currentChatUserId && currentChatUserId !== userId) {
 						try {
@@ -672,11 +673,14 @@
 							console.warn('ECDH шифрование недоступно:', ecdhError)
 						}
 					}
+
 					if (!sentWithECDH) {
 						const encryptedText = await MessageEncryption.encryptMessage(
 							text,
 							userPassword
 						)
+
+						const serverTime = await getServerTime()
 
 						const result = await eel.send_encrypted_message(
 							userId,
@@ -690,7 +694,7 @@
 								sender_id: userId,
 								receiver_id: currentChatUserId,
 								text: text,
-								timestamp: result.timestamp,
+								timestamp: serverTime,
 								read: result.read,
 								is_encrypted: true,
 							}
@@ -1177,19 +1181,125 @@
 				console.log('Чат закрыт по ESC, возврат на главный экран')
 			}
 
-			// Форматирование времени
-
+			// Форматирует время сообщения с учётом часового пояса
 			function formatMessageTime(timestamp) {
 				try {
-					const date = new Date(timestamp)
+					if (!timestamp) return '--:--'
+
+					if (/^\d{2}:\d{2}$/.test(timestamp)) {
+						return timestamp
+					}
+
+					let date
+
+					try {
+						if (timestamp.includes('Z') || timestamp.includes('+')) {
+							date = new Date(timestamp)
+						} else {
+							date = new Date(timestamp + 'Z')
+						}
+					} catch (e) {
+						date = new Date(timestamp)
+					}
+
+					if (isNaN(date.getTime())) {
+						console.warn('Неверный формат времени:', timestamp)
+						return '--:--'
+					}
 
 					return date.toLocaleTimeString('ru-RU', {
 						hour: '2-digit',
 						minute: '2-digit',
+						hour12: false,
+						timeZone: 'Europe/Moscow',
 					})
 				} catch (error) {
-					console.error('Ошибка форматирования времени:', error)
+					console.error(
+						'Ошибка форматирования времени:',
+						error,
+						'timestamp:',
+						timestamp
+					)
 					return '--:--'
+				}
+			}
+
+			async function getServerTime() {
+				try {
+					const response = await eel.get_current_time()()
+					return response
+				} catch (error) {
+					console.error('Ошибка получения времени сервера:', error)
+					return new Date().toISOString()
+				}
+			}
+
+			// Получает текущее время с сервера
+			async function getCurrentServerTime() {
+				try {
+					return await eel.get_current_time()()
+				} catch (error) {
+					console.error('Ошибка получения времени сервера:', error)
+					return new Date().toISOString()
+				}
+			}
+
+			// Форматирует дату для отображения (Сегодня, Вчера и т.д.)
+			function formatDateForDisplay(dateString) {
+				try {
+					const date = new Date(dateString)
+					if (isNaN(date.getTime())) return dateString
+
+					const now = new Date()
+					const today = new Date(
+						now.getFullYear(),
+						now.getMonth(),
+						now.getDate()
+					)
+					const messageDate = new Date(
+						date.getFullYear(),
+						date.getMonth(),
+						date.getDate()
+					)
+					const diffDays = Math.floor(
+						(today - messageDate) / (1000 * 60 * 60 * 24)
+					)
+
+					if (diffDays === 0) return 'Сегодня'
+					if (diffDays === 1) return 'Вчера'
+					if (diffDays < 7) {
+						const days = [
+							'Воскресенье',
+							'Понедельник',
+							'Вторник',
+							'Среда',
+							'Четверг',
+							'Пятница',
+							'Суббота',
+						]
+						return days[date.getDay()]
+					}
+
+					const months = [
+						'янв',
+						'фев',
+						'мар',
+						'апр',
+						'мая',
+						'июн',
+						'июл',
+						'авг',
+						'сен',
+						'окт',
+						'ноя',
+						'дек',
+					]
+					return `${date.getDate()} ${
+						months[date.getMonth()]
+					} ${date.getFullYear()}`
+				} catch (error) {
+					console.error('Ошибка форматирования даты:', error)
+					return dateString
 				}
 			}
 
@@ -1501,6 +1611,13 @@
 
 			document.addEventListener('DOMContentLoaded', async function () {
 				console.log('=== DOMContentLoaded начат ===')
+				try {
+					const serverTime = await getServerTime()
+					console.log('Время сервера:', serverTime)
+					console.log('Локальное время:', new Date().toISOString())
+				} catch (error) {
+					console.warn('Не удалось синхронизировать время с сервером:', error)
+				}
 				if (window.appInitialized) {
 					console.log('Приложение уже инициализировано')
 					return
@@ -4022,8 +4139,7 @@
 				}
 			}
 
-			// Заголовок даты
-
+			// Создаёт заголовок даты для группировки сообщений
 			function createDateHeader(dateText, dateKey) {
 				const dateHeader = document.createElement('div')
 				dateHeader.className = 'date-header'
@@ -4054,8 +4170,7 @@
 				messagesContainer.insertBefore(dateHeader, messageElement)
 			}
 
-			// Зафиксированные даты
-
+			// Обновляет зафиксированные заголовки дат при прокрутке
 			function updateStickyDateHeaders() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
 				if (!messagesWrapper) return
@@ -4070,6 +4185,7 @@
 					const header = dateHeaderElements[i]
 					const rect = header.getBoundingClientRect()
 					const messagesWrapperRect = messagesWrapper.getBoundingClientRect()
+
 					if (
 						rect.top <= messagesWrapperRect.top + 60 &&
 						rect.bottom > messagesWrapperRect.top
@@ -4078,12 +4194,13 @@
 						break
 					}
 				}
+
 				if (!newStickyDate && dateHeaderElements.length > 0) {
 					newStickyDate = dateHeaderElements[0]
 				}
-				dateHeaderElements.forEach(header => {
-					header.classList.remove('sticky')
-				})
+
+				dateHeaderElements.forEach(header => header.classList.remove('sticky'))
+
 				if (newStickyDate && newStickyDate !== currentStickyDate) {
 					newStickyDate.classList.add('sticky')
 					currentStickyDate = newStickyDate
@@ -4092,19 +4209,21 @@
 				}
 			}
 
-			// Система дат
-
+			// Инициализирует систему заголовков дат
 			function initDateHeadersSystem() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
 				if (!messagesWrapper) return
+
 				messagesWrapper.addEventListener('scroll', updateStickyDateHeaders)
+
 				dateHeadersObserver = new IntersectionObserver(
 					entries => {
 						entries.forEach(entry => {
-							if (entry.isIntersecting) {
-								if (entry.target.classList.contains('sticky')) {
-									entry.target.classList.remove('sticky')
-								}
+							if (
+								entry.isIntersecting &&
+								entry.target.classList.contains('sticky')
+							) {
+								entry.target.classList.remove('sticky')
 							}
 						})
 					},
@@ -4113,9 +4232,63 @@
 						threshold: 1.0,
 					}
 				)
+
 				document.querySelectorAll('.date-header').forEach(header => {
 					dateHeadersObserver.observe(header)
 				})
+			}
+
+			// Конвертирует UTC время в локальное
+			function convertUTCToLocal(utcTime) {
+				try {
+					if (!utcTime) return null
+					const date = new Date(utcTime)
+					return date.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })
+				} catch (error) {
+					console.error('Ошибка конвертации времени:', error)
+					return utcTime
+				}
+			}
+
+			// Получает временную метку в правильном формате
+			function getTimestamp() {
+				const now = new Date()
+				return now.toISOString()
+			}
+
+			// Сравнивает две даты (возвращает true если они в один день)
+			function isSameDay(date1, date2) {
+				const d1 = new Date(date1)
+				const d2 = new Date(date2)
+				return (
+					d1.getFullYear() === d2.getFullYear() &&
+					d1.getMonth() === d2.getMonth() &&
+					d1.getDate() === d2.getDate()
+				)
+			}
+
+			// Получает текущий часовой пояс пользователя
+			function getUserTimezone() {
+				return Intl.DateTimeFormat().resolvedOptions().timeZone
+			}
+
+			// Форматирует дату и время вместе
+			function formatDateTime(timestamp) {
+				try {
+					const date = new Date(timestamp)
+					if (isNaN(date.getTime())) return '--:--'
+
+					return `${date.toLocaleDateString('ru-RU')} ${date.toLocaleTimeString(
+						'ru-RU',
+						{
+							hour: '2-digit',
+							minute: '2-digit',
+						}
+					)}`
+				} catch (error) {
+					console.error('Ошибка форматирования даты и времени:', error)
+					return '--:--'
+				}
 			}
 
 			// Позиционирование меню

@@ -89,8 +89,37 @@ def get_local_time():
 
 @eel.expose
 def get_current_time():
-    """Получение текущего времени для клиента в формате ISO"""
+    """Получение текущего времени для клиента в локальном часовом поясе"""
     return datetime.now().astimezone().isoformat()
+@eel.expose
+def get_current_time_utc():
+    """Получение текущего времени в UTC"""
+    return datetime.utcnow().isoformat()
+
+@eel.expose
+def format_timestamp_for_display(timestamp_str):
+    """Форматирование временной метки для отображения в локальном времени"""
+    try:
+
+        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+        local_dt = dt.astimezone()
+
+        return local_dt.strftime("%H:%M")
+    except Exception as e:
+        logger.error(f"Ошибка форматирования времени {timestamp_str}: {e}")
+
+        try:
+            if 'T' in timestamp_str:
+
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            else:
+                dt = datetime.fromisoformat(timestamp_str)
+            
+            local_dt = dt.astimezone()
+            return local_dt.strftime("%H:%M")
+        except:
+            return "--:--"
 
 eel.init("web")
 
@@ -328,6 +357,7 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
         
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
+        current_time = datetime.now().astimezone()
         
         message_data = {
             "sender_id": ObjectId(sender_id),
@@ -336,7 +366,7 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
             "nonce": nonce_hex,
             "is_encrypted": True,
             "encryption_type": "ECDH-AES-GCM",
-            "timestamp": datetime.utcnow(),
+            "timestamp": current_time,
             "read": read_status
         }
         
@@ -349,7 +379,7 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": current_time.isoformat(),
             "read": read_status
         }
     except Exception as e:
@@ -514,12 +544,14 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
         
+        current_time = datetime.now().astimezone()
+        
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
             "encrypted_text": encrypted_text,
             "is_encrypted": True,
-            "timestamp": datetime.utcnow(),
+            "timestamp": current_time,
             "read": read_status
         }
         
@@ -532,7 +564,7 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": current_time.isoformat(),
             "read": read_status
         }
     except Exception as e:
@@ -620,13 +652,15 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
     try:
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
+
+        current_time = datetime.now().astimezone()
         
         message_data = {
             "sender_id": ObjectId(sender_id),
             "receiver_id": ObjectId(receiver_id),
             "text": text,
             "is_encrypted": False,
-            "timestamp": datetime.utcnow(),
+            "timestamp": current_time,
             "read": read_status
         }
         
@@ -639,7 +673,7 @@ def send_message(sender_id, receiver_id, text, reply_to_message_id=None):
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": current_time.isoformat(),
             "read": read_status
         }
     except Exception as e:
@@ -824,9 +858,12 @@ def check_new_messages(user_id, last_message_id=None):
 def update_last_online(user_id):
     """Обновление времени последней активности пользователя в текущий момент"""
     try:
+
+        current_time = datetime.now().astimezone()
+        
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
-            {"$set": {"last_online": datetime.utcnow()}}
+            {"$set": {"last_online": current_time}}
         )
         return True
     except Exception as e:
