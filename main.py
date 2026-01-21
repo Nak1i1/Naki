@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+
 CURVE = ec.SECP256R1()
 HKDF_INFO = b'messenger_key_derivation'
 
@@ -1189,6 +1190,16 @@ if __name__ == '__main__':
     try:
         import sys
         port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-        eel.start('login.html', size=(1000, 700), mode='chrome', port=port)
+        
+        # Попробуйте разные опции:
+        eel.start('login.html', 
+                  size=(1000, 700), 
+                  mode='chrome', 
+                  port=port,
+                  cmdline_args=[
+                      '--app-icon=web/logo.ico',  # Используем ICO
+                      '--disable-extensions',
+                      '--no-first-run'
+                  ])
     except Exception as e:
         logger.error(f"Ошибка запуска приложения: {e}")
