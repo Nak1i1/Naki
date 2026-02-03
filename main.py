@@ -1191,13 +1191,13 @@ if __name__ == '__main__':
         import sys
         port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
         
-        # Попробуйте разные опции:
+        
         eel.start('login.html', 
                   size=(1000, 700), 
                   mode='chrome', 
                   port=port,
                   cmdline_args=[
-                      '--app-icon=web/logo.ico',  # Используем ICO
+                      '--app-icon=web/logo.ico', 
                       '--disable-extensions',
                       '--no-first-run'
                   ])

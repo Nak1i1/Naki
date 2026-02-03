@@ -1,16 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 	<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Мессенджер</title>
-    <link rel="stylesheet" href="style.css" />
-    <link rel="icon" type="image/png" href="logo.png" />
-    <link rel="apple-touch-icon" href="logo.png">
-    <meta name="mobile-web-app-capable" content="yes"> 
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#4CAF50">
-</head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Мессенджер</title>
+		<link rel="stylesheet" href="style.css" />
+		<link rel="icon" type="image/png" href="logo.png" />
+		<link rel="apple-touch-icon" href="logo.png" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta
+			name="apple-mobile-web-app-status-bar-style"
+			content="black-translucent"
+		/>
+		<meta name="theme-color" content="#4CAF50" />
+	</head>
 	<body>
 		<div class="media-send-overlay hidden" id="media-send-overlay"></div>
 		<div class="media-send-modal hidden" id="media-send-modal">
@@ -294,8 +297,6 @@
 				}
 			})
 
-			// Закрытие чата
-
 			function closeChatAndReset() {
 				document.getElementById('default-content').classList.remove('hidden')
 				document.getElementById('chat-container').classList.add('hidden')
@@ -329,8 +330,6 @@
 
 				console.log('Чат закрыт по ESC, возврат на главный экран')
 			}
-
-			// Модальное окно
 
 			function initImageModal() {
 				const imageModalOverlay = document.getElementById('image-modal-overlay')
@@ -369,8 +368,6 @@
 				console.log('Image modal initialized')
 			}
 
-			// Остановка голоса
-
 			function stopVoiceMessage() {
 				if (currentPlayingAudio) {
 					currentPlayingAudio.pause()
@@ -389,11 +386,7 @@
 				}
 			}
 
-			// Обработчики голоса
-
 			function setupVoiceMessageHandlers() {}
-
-			// Индикаторы прослушивания
 
 			function updateListenIndicators() {
 				return Promise.resolve()
@@ -406,7 +399,7 @@
 							namedCurve: 'P-256',
 						},
 						true,
-						['deriveKey']
+						['deriveKey'],
 					)
 				}
 				static async exportPublicKey(key) {
@@ -432,7 +425,7 @@
 							namedCurve: 'P-256',
 						},
 						true,
-						[]
+						[],
 					)
 				}
 				static async deriveSharedSecret(privateKey, peerPublicKey) {
@@ -447,7 +440,7 @@
 							length: 256,
 						},
 						false,
-						['encrypt', 'decrypt']
+						['encrypt', 'decrypt'],
 					)
 				}
 				static async encryptMessage(sharedKey, plaintext) {
@@ -461,7 +454,7 @@
 							iv: iv,
 						},
 						sharedKey,
-						encoded
+						encoded,
 					)
 
 					return {
@@ -479,7 +472,7 @@
 							iv: nonce,
 						},
 						sharedKey,
-						ciphertext
+						ciphertext,
 					)
 
 					const decoder = new TextDecoder()
@@ -499,8 +492,6 @@
 				}
 			}
 
-			// Шифрование ECDH
-
 			async function setupEcdhEncryption(peerUserId) {
 				try {
 					const userId = localStorage.getItem('user_id')
@@ -516,12 +507,13 @@
 					const sharedSecretResult = await eel.compute_shared_secret(
 						userId,
 						peerKeyResult.public_key,
-						password
+						password,
 					)()
 
 					if (!sharedSecretResult.success) {
 						throw new Error(
-							'Не удалось вычислить общий секрет: ' + sharedSecretResult.message
+							'Не удалось вычислить общий секрет: ' +
+								sharedSecretResult.message,
 						)
 					}
 
@@ -540,7 +532,7 @@
 					.replace(/\s/g, '')
 
 				const binaryDer = Uint8Array.from(atob(pemContents), c =>
-					c.charCodeAt(0)
+					c.charCodeAt(0),
 				)
 
 				return await window.crypto.subtle.importKey(
@@ -551,7 +543,7 @@
 						namedCurve: 'P-256',
 					},
 					false,
-					['deriveKey']
+					['deriveKey'],
 				)
 			}
 
@@ -562,7 +554,7 @@
 					.replace(/\s/g, '')
 
 				const binaryDer = Uint8Array.from(atob(pemContents), c =>
-					c.charCodeAt(0)
+					c.charCodeAt(0),
 				)
 
 				return await window.crypto.subtle.importKey(
@@ -573,7 +565,7 @@
 						namedCurve: 'P-256',
 					},
 					true,
-					[]
+					[],
 				)
 			}
 			document
@@ -600,8 +592,6 @@
 					}
 				})
 
-			// История чата
-
 			async function loadEcdhChatHistory(userId) {
 				try {
 					const currentUserId = localStorage.getItem('user_id')
@@ -609,7 +599,7 @@
 						'Загружаем историю ECDH чата между',
 						currentUserId,
 						'и',
-						userId
+						userId,
 					)
 					const messagesContainer = document.getElementById('chat-messages')
 					if (messagesContainer) {
@@ -621,23 +611,23 @@
 					}
 					const response = await eel.get_ecdh_chat_history(
 						currentUserId,
-						userId
+						userId,
 					)()
 
 					if (!response.success) {
 						console.warn(
 							'Не удалось загрузить историю ECDH чата:',
-							response.message
+							response.message,
 						)
 						const fallbackResponse = await eel.get_encrypted_chat_history(
 							currentUserId,
-							userId
+							userId,
 						)()
 						if (fallbackResponse.success) {
 							await processEncryptedMessages(
 								fallbackResponse.messages,
 								currentUserId,
-								userId
+								userId,
 							)
 						}
 						return
@@ -645,7 +635,7 @@
 
 					console.log(
 						'Получено ECDH сообщений:',
-						response.messages ? response.messages.length : 0
+						response.messages ? response.messages.length : 0,
 					)
 
 					if (response.messages && response.messages.length > 0) {
@@ -658,8 +648,6 @@
 					console.error('Ошибка загрузки истории ECDH чата:', error)
 				}
 			}
-
-			// Защищённое сообщение
 
 			async function sendSecureMessage(text) {
 				try {
@@ -682,7 +670,7 @@
 					if (!sentWithECDH) {
 						const encryptedText = await MessageEncryption.encryptMessage(
 							text,
-							userPassword
+							userPassword,
 						)
 
 						const serverTime = await getServerTime()
@@ -690,7 +678,7 @@
 						const result = await eel.send_encrypted_message(
 							userId,
 							currentChatUserId,
-							encryptedText
+							encryptedText,
 						)()
 
 						if (result.success) {
@@ -718,8 +706,6 @@
 					alert('Ошибка отправки сообщения: ' + error.message)
 				}
 			}
-
-			// Обработка сообщений
 
 			async function processEcdhMessages(messages, currentUserId, peerUserId) {
 				const messagesContainer = document.getElementById('chat-messages')
@@ -756,7 +742,7 @@
 								currentUserId,
 								isMyMessage ? peerUserId : msg.sender_id,
 								userPassword,
-								isMyMessage
+								isMyMessage,
 							)
 						}
 
@@ -768,7 +754,7 @@
 						if (msg.replied_message && !msg.replied_message.text) {
 							try {
 								const repliedMessage = await getFullEcdhMessageData(
-									msg.replied_message.id
+									msg.replied_message.id,
 								)
 								if (repliedMessage) {
 									let repliedText = '[Сообщение]'
@@ -787,12 +773,12 @@
 													? repliedMessage.receiver_id
 													: repliedMessage.sender_id,
 												userPassword,
-												repliedMessage.sender_id === currentUserId
+												repliedMessage.sender_id === currentUserId,
 											)
 										} else if (repliedMessage.text) {
 											repliedText = await MessageEncryption.decryptMessage(
 												repliedMessage.text,
-												userPassword
+												userPassword,
 											)
 										}
 									} else {
@@ -807,7 +793,7 @@
 							} catch (error) {
 								console.error(
 									'Ошибка получения данных ответного сообщения:',
-									error
+									error,
 								)
 							}
 						}
@@ -825,7 +811,7 @@
 				}
 				setTimeout(() => {
 					const messagesWrapper = document.getElementById(
-						'chat-messages-wrapper'
+						'chat-messages-wrapper',
 					)
 					if (messagesWrapper) {
 						messagesWrapper.scrollTop = messagesWrapper.scrollHeight
@@ -833,8 +819,6 @@
 					}
 				}, 100)
 			}
-
-			// Ошибка пароля
 
 			function showNoPasswordError() {
 				const messagesContainer = document.getElementById('chat-messages')
@@ -848,8 +832,6 @@
         </div>
     `
 			}
-
-			// Отправка ECDH
 
 			async function sendEcdhMessage(text) {
 				try {
@@ -869,20 +851,20 @@
 					}
 					const privateKeyResult = await eel.get_decrypted_private_key(
 						userId,
-						password
+						password,
 					)()
 					if (!privateKeyResult.success) {
 						throw new Error('Не удалось получить приватный ключ')
 					}
 					const privateKey = await ECDHEncryption.importPrivateKeyFromPem(
-						privateKeyResult.private_key
+						privateKeyResult.private_key,
 					)
 					const peerPublicKey = await ECDHEncryption.importPublicKeyFromPem(
-						peerKeyResult.public_key
+						peerKeyResult.public_key,
 					)
 					const sharedKey = await ECDHEncryption.deriveSharedSecret(
 						privateKey,
-						peerPublicKey
+						peerPublicKey,
 					)
 					const encrypted = await ECDHEncryption.encryptMessage(sharedKey, text)
 					const ciphertextHex = ECDHEncryption.arrayToHex(encrypted.ciphertext)
@@ -896,9 +878,8 @@
 						replyToMessageId = replyContainer.dataset.messageId
 
 						try {
-							const repliedMessage = await getFullEcdhMessageData(
-								replyToMessageId
-							)
+							const repliedMessage =
+								await getFullEcdhMessageData(replyToMessageId)
 							if (repliedMessage) {
 								let displayText = '[Сообщение]'
 
@@ -917,12 +898,12 @@
 													? repliedMessage.receiver_id
 													: repliedMessage.sender_id,
 												password,
-												repliedMessage.sender_id === userId
+												repliedMessage.sender_id === userId,
 											)
 										} catch (decryptError) {
 											console.error(
 												'Ошибка дешифрования при подготовке ответа:',
-												decryptError
+												decryptError,
 											)
 											displayText = '[Зашифрованное сообщение]'
 										}
@@ -930,12 +911,12 @@
 										try {
 											displayText = await MessageEncryption.decryptMessage(
 												repliedMessage.text,
-												password
+												password,
 											)
 										} catch (error) {
 											console.error(
 												'Ошибка дешифрования старого сообщения:',
-												error
+												error,
 											)
 											displayText = '[Зашифрованное сообщение]'
 										}
@@ -961,7 +942,7 @@
 						currentChatUserId,
 						ciphertextHex,
 						nonceHex,
-						replyToMessageId
+						replyToMessageId,
 					)()
 
 					if (result.success) {
@@ -1024,20 +1005,18 @@
 					}
 				})
 
-			// Расшифровка ECDH
-
 			async function decryptEcdhMessage(
 				ciphertextHex,
 				nonceHex,
 				myUserId,
 				peerUserId,
 				password,
-				isMyMessage
+				isMyMessage,
 			) {
 				try {
 					const privateKeyResult = await eel.get_decrypted_private_key(
 						myUserId,
-						password
+						password,
 					)()
 					if (!privateKeyResult.success) {
 						throw new Error('Не удалось получить приватный ключ')
@@ -1047,21 +1026,21 @@
 						throw new Error('Не удалось получить публичный ключ собеседника')
 					}
 					const privateKey = await ECDHEncryption.importPrivateKeyFromPem(
-						privateKeyResult.private_key
+						privateKeyResult.private_key,
 					)
 					const peerPublicKey = await ECDHEncryption.importPublicKeyFromPem(
-						peerKeyResult.public_key
+						peerKeyResult.public_key,
 					)
 					const sharedKey = await ECDHEncryption.deriveSharedSecret(
 						privateKey,
-						peerPublicKey
+						peerPublicKey,
 					)
 					const ciphertextArray = ECDHEncryption.hexToArray(ciphertextHex)
 					const nonceArray = ECDHEncryption.hexToArray(nonceHex)
 					return await ECDHEncryption.decryptMessage(
 						sharedKey,
 						ciphertextArray,
-						nonceArray
+						nonceArray,
 					)
 				} catch (error) {
 					console.error('Ошибка дешифрования ECDH сообщения:', error)
@@ -1077,7 +1056,7 @@
 						encoder.encode(password),
 						'PBKDF2',
 						false,
-						['deriveKey']
+						['deriveKey'],
 					)
 
 					return await crypto.subtle.deriveKey(
@@ -1093,7 +1072,7 @@
 							length: 256,
 						},
 						false,
-						['encrypt', 'decrypt']
+						['encrypt', 'decrypt'],
 					)
 				}
 
@@ -1111,16 +1090,16 @@
 								iv: iv,
 							},
 							key,
-							encodedText
+							encodedText,
 						)
 						const result = new Uint8Array(
-							salt.length + iv.length + encryptedContent.byteLength
+							salt.length + iv.length + encryptedContent.byteLength,
 						)
 						result.set(salt, 0)
 						result.set(iv, salt.length)
 						result.set(
 							new Uint8Array(encryptedContent),
-							salt.length + iv.length
+							salt.length + iv.length,
 						)
 						return btoa(String.fromCharCode.apply(null, result))
 					} catch (error) {
@@ -1146,7 +1125,7 @@
 								iv: iv,
 							},
 							key,
-							encryptedContent
+							encryptedContent,
 						)
 
 						const decoder = new TextDecoder()
@@ -1185,8 +1164,6 @@
 
 				console.log('Чат закрыт по ESC, возврат на главный экран')
 			}
-
-			// Форматирует время сообщения с учётом часового пояса
 			function formatMessageTime(timestamp) {
 				try {
 					if (!timestamp) return '--:--'
@@ -1223,7 +1200,7 @@
 						'Ошибка форматирования времени:',
 						error,
 						'timestamp:',
-						timestamp
+						timestamp,
 					)
 					return '--:--'
 				}
@@ -1238,8 +1215,6 @@
 					return new Date().toISOString()
 				}
 			}
-
-			// Получает текущее время с сервера
 			async function getCurrentServerTime() {
 				try {
 					return await eel.get_current_time()()
@@ -1248,8 +1223,6 @@
 					return new Date().toISOString()
 				}
 			}
-
-			// Форматирует дату для отображения (Сегодня, Вчера и т.д.)
 			function formatDateForDisplay(dateString) {
 				try {
 					const date = new Date(dateString)
@@ -1259,15 +1232,15 @@
 					const today = new Date(
 						now.getFullYear(),
 						now.getMonth(),
-						now.getDate()
+						now.getDate(),
 					)
 					const messageDate = new Date(
 						date.getFullYear(),
 						date.getMonth(),
-						date.getDate()
+						date.getDate(),
 					)
 					const diffDays = Math.floor(
-						(today - messageDate) / (1000 * 60 * 60 * 24)
+						(today - messageDate) / (1000 * 60 * 60 * 24),
 					)
 
 					if (diffDays === 0) return 'Сегодня'
@@ -1308,8 +1281,6 @@
 				}
 			}
 
-			// Полные данные
-
 			async function getFullEcdhMessageData(messageId) {
 				try {
 					const userId = localStorage.getItem('user_id')
@@ -1321,12 +1292,12 @@
 					try {
 						const ecdhHistory = await eel.get_ecdh_chat_history(
 							userId,
-							currentChatUserId
+							currentChatUserId,
 						)()
 
 						if (ecdhHistory.success && ecdhHistory.messages) {
 							const message = ecdhHistory.messages.find(
-								msg => msg.id === messageId
+								msg => msg.id === messageId,
 							)
 							if (message) {
 								return message
@@ -1338,12 +1309,12 @@
 					try {
 						const regularHistory = await eel.get_encrypted_chat_history(
 							userId,
-							currentChatUserId
+							currentChatUserId,
 						)()
 
 						if (regularHistory.success && regularHistory.messages) {
 							const message = regularHistory.messages.find(
-								msg => msg.id === messageId
+								msg => msg.id === messageId,
 							)
 							if (message) {
 								return message
@@ -1358,7 +1329,7 @@
 					} catch (basicError) {
 						console.error(
 							'Не удалось получить базовые данные сообщения:',
-							basicError
+							basicError,
 						)
 						return null
 					}
@@ -1367,8 +1338,6 @@
 					return null
 				}
 			}
-
-			// Инициализация шифрования
 
 			async function initializeUserEncryption() {
 				try {
@@ -1383,12 +1352,12 @@
 					if (!keyResult.success) {
 						const generateResult = await eel.generate_ecdh_keypair(
 							userId,
-							password
+							password,
 						)()
 						if (!generateResult.success) {
 							console.error(
 								'Не удалось сгенерировать ECDH ключи:',
-								generateResult.message
+								generateResult.message,
 							)
 							return false
 						}
@@ -1403,8 +1372,6 @@
 					return false
 				}
 			}
-
-			// Расшифровка последних
 
 			async function decryptLastMessageForAllUsers() {
 				try {
@@ -1422,20 +1389,20 @@
 					}
 
 					console.log(
-						'Начинаем дешифрование последних сообщений для всех друзей...'
+						'Начинаем дешифрование последних сообщений для всех друзей...',
 					)
 
 					for (const friendId of userData.friends) {
 						try {
 							const lastMessage = await eel.get_last_message(
 								user_id,
-								friendId
+								friendId,
 							)()
 
 							if (lastMessage && lastMessage.is_encrypted) {
 								const chatHistory = await eel.get_encrypted_chat_history(
 									user_id,
-									friendId
+									friendId,
 								)()
 
 								if (
@@ -1451,27 +1418,27 @@
 											const decryptedText =
 												await MessageEncryption.decryptMessage(
 													lastMsg.text,
-													userPassword
+													userPassword,
 												)
 
 											updateLastMessageOnUserCard(
 												friendId,
 												decryptedText,
-												lastMsg.sender_id === user_id
+												lastMsg.sender_id === user_id,
 											)
 
 											console.log(
-												`Сообщение дешифровано для пользователя ${friendId}`
+												`Сообщение дешифровано для пользователя ${friendId}`,
 											)
 										} catch (decryptError) {
 											console.error(
 												`Ошибка дешифрования для ${friendId}:`,
-												decryptError
+												decryptError,
 											)
 											updateLastMessageOnUserCard(
 												friendId,
 												'🔒 Зашифрованное сообщение',
-												false
+												false,
 											)
 										}
 									}
@@ -1480,7 +1447,7 @@
 								updateLastMessageOnUserCard(
 									friendId,
 									lastMessage.text,
-									lastMessage.sender_id === user_id
+									lastMessage.sender_id === user_id,
 								)
 							}
 						} catch (friendError) {
@@ -1494,16 +1461,14 @@
 				}
 			}
 
-			// Обновление удаления
-
 			async function updateLastMessageAfterDelete(chatUserId) {
 				try {
 					const lastMessage = await eel.get_last_message(
 						localStorage.getItem('user_id'),
-						chatUserId
+						chatUserId,
 					)()
 					const userCard = document.querySelector(
-						`.user-bar[data-user-id="${chatUserId}"]`
+						`.user-bar[data-user-id="${chatUserId}"]`,
 					)
 
 					if (!userCard) return
@@ -1546,8 +1511,6 @@
 				}
 			}
 
-			// Очистка ответа
-
 			async function clearReplyState() {
 				const replyContainer = document.getElementById('reply-container')
 				replyContainer.classList.add('hidden')
@@ -1557,12 +1520,12 @@
 				if (currentChatUserId) {
 					const clearResult = await eel.clear_reply_state(
 						localStorage.getItem('user_id'),
-						currentChatUserId
+						currentChatUserId,
 					)()
 					if (!clearResult.success) {
 						console.error(
 							'Не удалось очистить состояние ответа:',
-							clearResult.message
+							clearResult.message,
 						)
 					} else {
 						console.log('Состояние ответа очищено для чата:', currentChatUserId)
@@ -1570,13 +1533,11 @@
 				}
 			}
 
-			// Инициализация чата
-
 			async function initializeZKChat(
 				userId,
 				peerUserId,
 				myPassword,
-				peerPassword
+				peerPassword,
 			) {
 				try {
 					const myUserData = await eel.get_user_data(userId)()
@@ -1587,16 +1548,16 @@
 					}
 
 					const mySalt = Uint8Array.from(atob(myUserData.salt), c =>
-						c.charCodeAt(0)
+						c.charCodeAt(0),
 					)
 					const peerSalt = Uint8Array.from(atob(peerUserData.salt), c =>
-						c.charCodeAt(0)
+						c.charCodeAt(0),
 					)
 					const combinedSalt = new Uint8Array([...mySalt, ...peerSalt])
 					const masterKey = await ZKEncryptionSystem.deriveMasterKey(
 						myPassword,
 						peerPassword,
-						combinedSalt
+						combinedSalt,
 					)
 					const chatKey = `${userId}-${peerUserId}`
 					zkMasterKeys.set(chatKey, masterKey)
@@ -1604,7 +1565,7 @@
 						userId,
 						peerUserId,
 						myPassword,
-						peerPassword
+						peerPassword,
 					)()
 
 					return masterKey
@@ -1655,30 +1616,29 @@
 					const userPassword = sessionStorage.getItem('user_password')
 					if (!userPassword) {
 						console.error(
-							'Пароль не найден в sessionStorage. Перенаправляем на вход.'
+							'Пароль не найден в sessionStorage. Перенаправляем на вход.',
 						)
 						localStorage.removeItem('user_id')
 						window.location.href = 'login.html'
 						return
 					}
-					// Инициализация шифрования (добавляем обработку ошибок)
 					try {
 						const encryptionInit = await eel.initialize_user_encryption(
 							user_id,
-							userPassword
+							userPassword,
 						)()
 						if (encryptionInit.success) {
 							console.log('Система шифрования инициализирована')
 						} else {
 							console.warn(
 								'Не удалось инициализировать шифрование:',
-								encryptionInit.message
+								encryptionInit.message,
 							)
 						}
 					} catch (encryptionError) {
 						console.warn(
 							'Ошибка при инициализации шифрования:',
-							encryptionError
+							encryptionError,
 						)
 					}
 
@@ -1765,7 +1725,7 @@
 					alert(
 						'Ошибка инициализации приложения: ' +
 							error.message +
-							'\nПопробуйте перезагрузить страницу.'
+							'\nПопробуйте перезагрузить страницу.',
 					)
 				}
 			})
@@ -1789,8 +1749,6 @@
 					}
 				})
 
-			// Пользовательская прокрутка
-
 			function initCustomScroll() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
 				const scrollbar = document.getElementById('custom-scrollbar')
@@ -1800,8 +1758,6 @@
 				let isDraggingScroll = false
 				let scrollDragStartY = 0
 				let scrollThumbStartY = 0
-
-				// Полоска прокрутки
 
 				function updateScrollThumb() {
 					if (!messagesWrapper) return
@@ -1815,7 +1771,7 @@
 					scrollbar.style.display = 'block'
 					const thumbHeight = Math.max(
 						20,
-						(clientHeight / scrollHeight) * clientHeight
+						(clientHeight / scrollHeight) * clientHeight,
 					)
 					const thumbPosition =
 						(scrollTop / (scrollHeight - clientHeight)) *
@@ -1844,7 +1800,7 @@
 						messagesWrapper.clientHeight - scrollThumb.offsetHeight
 					newThumbPosition = Math.max(
 						0,
-						Math.min(maxPosition, newThumbPosition)
+						Math.min(maxPosition, newThumbPosition),
 					)
 					scrollThumb.style.top = `${newThumbPosition}px`
 					const scrollRatio = newThumbPosition / maxPosition
@@ -1852,8 +1808,6 @@
 						scrollRatio *
 						(messagesWrapper.scrollHeight - messagesWrapper.clientHeight)
 				}
-
-				// Конец прокрутки
 
 				const handleScrollEnd = () => {
 					isDraggingScroll = false
@@ -1869,7 +1823,7 @@
 						let newThumbPosition = clickPosition - thumbHeight / 2
 						newThumbPosition = Math.max(
 							0,
-							Math.min(rect.height - thumbHeight, newThumbPosition)
+							Math.min(rect.height - thumbHeight, newThumbPosition),
 						)
 						scrollThumb.style.top = `${newThumbPosition}px`
 						const scrollRatio = newThumbPosition / (rect.height - thumbHeight)
@@ -1885,15 +1839,11 @@
 				observer.observe(messagesWrapper, { childList: true, subtree: true })
 			}
 
-			// Обновления статуса
-
 			function startOnlineStatusUpdates() {
 				updateOnlineStatus()
 				onlineStatusInterval = setInterval(updateOnlineStatus, 30000)
 				window.addEventListener('beforeunload', updateOnlineStatus)
 			}
-
-			// Статус онлайн
 
 			async function updateOnlineStatus() {
 				try {
@@ -1903,14 +1853,10 @@
 				}
 			}
 
-			// Закрытие выхода
-
 			function closeLogoutModal() {
 				document.getElementById('logout-overlay').classList.add('hidden')
 				document.getElementById('logout-modal').classList.add('hidden')
 			}
-
-			// Закрытие чата
 
 			function closeChat(softClose = false) {
 				document.getElementById('default-content').classList.remove('hidden')
@@ -1939,20 +1885,18 @@
 				}
 			}
 
-			// Восстановление ответа
-
 			async function checkAndRestoreReplyState() {
 				if (!currentChatUserId) return
 
 				try {
 					const replyState = await eel.get_reply_state(
 						localStorage.getItem('user_id'),
-						currentChatUserId
+						currentChatUserId,
 					)()
 
 					if (replyState.success && replyState.message_id) {
 						const fullMessageData = await getFullEcdhMessageData(
-							replyState.message_id
+							replyState.message_id,
 						)
 
 						if (fullMessageData) {
@@ -1980,7 +1924,7 @@
 													? fullMessageData.receiver_id
 													: fullMessageData.sender_id,
 												password,
-												fullMessageData.sender_id === userId
+												fullMessageData.sender_id === userId,
 											)
 										} else {
 											displayText = '[Зашифрованное сообщение]'
@@ -1988,7 +1932,7 @@
 									} catch (decryptError) {
 										console.error(
 											'Ошибка дешифрования при восстановлении ответа:',
-											decryptError
+											decryptError,
 										)
 										displayText = '[Не удалось расшифровать]'
 									}
@@ -1998,7 +1942,7 @@
 										if (userPassword) {
 											displayText = await MessageEncryption.decryptMessage(
 												fullMessageData.text,
-												userPassword
+												userPassword,
 											)
 										} else {
 											displayText = '[Зашифрованное сообщение]'
@@ -2006,7 +1950,7 @@
 									} catch (error) {
 										console.error(
 											'Ошибка дешифрования старого сообщения при восстановлении:',
-											error
+											error,
 										)
 										displayText = '[Не удалось расшифровать]'
 									}
@@ -2044,21 +1988,19 @@
 
 							console.log(
 								'Состояние ответа восстановлено для чата:',
-								currentChatUserId
+								currentChatUserId,
 							)
 						}
 					} else {
 						console.log(
 							'Состояние ответа не найдено или устарело:',
-							replyState.message
+							replyState.message,
 						)
 					}
 				} catch (error) {
 					console.error('Ошибка восстановления состояния ответа:', error)
 				}
 			}
-
-			// Расшифрованный текст
 
 			async function getDecryptedMessageText(messageData) {
 				let text = messageData.text || '[Сообщение]'
@@ -2069,7 +2011,7 @@
 						if (userPassword) {
 							text = await MessageEncryption.decryptMessage(
 								messageData.text,
-								userPassword
+								userPassword,
 							)
 						} else {
 							text = '[Зашифрованное сообщение]'
@@ -2082,8 +2024,6 @@
 
 				return text
 			}
-
-			// Показ индикатора
 
 			function showEncryptionIndicator() {
 				const chatHeader = document.querySelector('.chat-header')
@@ -2099,16 +2039,12 @@
 				}
 			}
 
-			// Скрытие индикатора
-
 			function hideEncryptionIndicator() {
 				const indicator = document.querySelector('.encryption-indicator')
 				if (indicator) {
 					indicator.remove()
 				}
 			}
-
-			// Открытие чата
 
 			async function openChat(userId) {
 				console.log('=== НАЧАЛО openChat ===')
@@ -2137,7 +2073,7 @@
 				if (currentChatUserId) {
 					try {
 						const messagesWrapper = document.getElementById(
-							'chat-messages-wrapper'
+							'chat-messages-wrapper',
 						)
 						if (messagesWrapper) {
 							scrollPositions[currentChatUserId] = messagesWrapper.scrollTop
@@ -2148,7 +2084,7 @@
 							await eel.save_draft_message(
 								currentUserId,
 								currentChatUserId,
-								currentText
+								currentText,
 							)()
 						}
 						chatInputs[currentChatUserId] = currentText
@@ -2186,7 +2122,7 @@
 									const sharedResult = await eel.compute_shared_secret(
 										currentUserId,
 										peerKeyResult.public_key,
-										userPassword
+										userPassword,
 									)()
 
 									if (sharedResult.success) {
@@ -2195,7 +2131,7 @@
 									} else {
 										console.warn(
 											'Не удалось вычислить общий секрет:',
-											sharedResult.message
+											sharedResult.message,
 										)
 										hideEncryptionIndicator()
 									}
@@ -2206,7 +2142,7 @@
 							} else {
 								console.warn(
 									'Не удалось получить публичный ключ собеседника:',
-									peerKeyResult.message
+									peerKeyResult.message,
 								)
 								hideEncryptionIndicator()
 							}
@@ -2215,13 +2151,13 @@
 							} catch (readError) {
 								console.warn(
 									'Ошибка пометки сообщений как прочитанных:',
-									readError
+									readError,
 								)
 							}
 						} catch (encryptionError) {
 							console.error(
 								'Ошибка настройки ECDH шифрования:',
-								encryptionError
+								encryptionError,
 							)
 							hideEncryptionIndicator()
 						}
@@ -2256,7 +2192,7 @@
 					try {
 						const draftText = await eel.get_draft_message(
 							currentUserId,
-							userId
+							userId,
 						)()
 						const messageInput = document.getElementById('message-input')
 						if (messageInput) {
@@ -2278,7 +2214,7 @@
 						el.classList.remove('active-chat')
 					})
 					const userCard = document.querySelector(
-						`.user-bar[data-user-id="${userId}"]`
+						`.user-bar[data-user-id="${userId}"]`,
 					)
 					if (userCard) {
 						userCard.classList.add('active-chat')
@@ -2288,7 +2224,7 @@
 					}
 					setTimeout(() => {
 						const messagesWrapper = document.getElementById(
-							'chat-messages-wrapper'
+							'chat-messages-wrapper',
 						)
 						if (messagesWrapper && scrollPositions[userId]) {
 							messagesWrapper.scrollTop = scrollPositions[userId]
@@ -2305,7 +2241,7 @@
 					console.error('Критическая ошибка при открытии чата:', error)
 					if (currentChatUserId) {
 						const previousUserCard = document.querySelector(
-							`.user-bar[data-user-id="${currentChatUserId}"]`
+							`.user-bar[data-user-id="${currentChatUserId}"]`,
 						)
 						if (previousUserCard) {
 							previousUserCard.classList.add('active-chat')
@@ -2317,8 +2253,6 @@
 					currentChatUserId = null
 				}
 			}
-
-			// Статус пользователя
 
 			async function updateUserStatus() {
 				if (!currentChatUserId) return
@@ -2341,7 +2275,7 @@
 						statusElement.classList.add('online')
 					} else {
 						statusElement.textContent = `Был(а) в сети ${formatTimeAgo(
-							lastOnline
+							lastOnline,
 						)}`
 						statusElement.classList.remove('online')
 					}
@@ -2352,11 +2286,9 @@
 				}
 			}
 
-			// Статус контактов
-
 			function updateOnlineStatusInContacts() {
 				const userBars = document.querySelectorAll(
-					'.user-bar:not(.current-user)'
+					'.user-bar:not(.current-user)',
 				)
 				userBars.forEach(async bar => {
 					const userId = bar.dataset.userId
@@ -2380,8 +2312,6 @@
 				})
 			}
 
-			// Время назад
-
 			function formatTimeAgo(date) {
 				const now = new Date()
 				const diff = Math.floor((now - date) / 1000)
@@ -2401,14 +2331,12 @@
 				})
 			}
 
-			// Статус прочтения
-
 			async function updateReadStatus() {
 				if (!currentChatUserId) return
 
 				try {
 					const myMessages = Array.from(
-						document.querySelectorAll('.my-message')
+						document.querySelectorAll('.my-message'),
 					)
 						.map(el => el.dataset.id)
 						.filter(id => id)
@@ -2419,7 +2347,7 @@
 
 					for (const [messageId, isRead] of Object.entries(readStatus)) {
 						const messageElement = document.querySelector(
-							`.message[data-id="${messageId}"]`
+							`.message[data-id="${messageId}"]`,
 						)
 						if (messageElement) {
 							const infoElement = messageElement.querySelector('.message-info')
@@ -2446,15 +2374,13 @@
 				}
 			}
 
-			// Последнее сообщение
-
 			async function updateLastMessageOnUserCard(
 				userId,
 				messageText,
-				isMyMessage = false
+				isMyMessage = false,
 			) {
 				const userCard = document.querySelector(
-					`.user-bar[data-user-id="${userId}"]`
+					`.user-bar[data-user-id="${userId}"]`,
 				)
 				if (!userCard) return
 
@@ -2488,12 +2414,10 @@
 				}
 			}
 
-			// Добавление сообщения
-
 			async function addMessageToChat(
 				message,
 				isMyMessage,
-				scrollToBottom = true
+				scrollToBottom = true,
 			) {
 				const messagesContainer = document.getElementById('chat-messages')
 
@@ -2503,7 +2427,7 @@
 				}
 				if (message.id) {
 					const existingMessage = document.querySelector(
-						`.message[data-id="${message.id}"]`
+						`.message[data-id="${message.id}"]`,
 					)
 					if (existingMessage) {
 						console.log('Сообщение уже отображено, пропускаем:', message.id)
@@ -2587,11 +2511,11 @@
 							localStorage.getItem('user_id')
 								? 'Вы'
 								: document.getElementById('chat-username')?.textContent ||
-								  'Собеседник'
+									'Собеседник'
 					} else if (message.reply_to_message_id) {
 						try {
 							const repliedMessage = await getFullEcdhMessageData(
-								message.reply_to_message_id
+								message.reply_to_message_id,
 							)
 
 							if (repliedMessage) {
@@ -2614,7 +2538,7 @@
 														? repliedMessage.receiver_id
 														: repliedMessage.sender_id,
 													password,
-													repliedMessage.sender_id === userId
+													repliedMessage.sender_id === userId,
 												)
 											} else {
 												repliedText = '[Зашифрованное сообщение]'
@@ -2622,7 +2546,7 @@
 										} catch (decryptError) {
 											console.error(
 												'Ошибка дешифрования ответного сообщения:',
-												decryptError
+												decryptError,
 											)
 											repliedText = '[Не удалось расшифровать]'
 										}
@@ -2631,7 +2555,7 @@
 										if (userPassword) {
 											repliedText = await MessageEncryption.decryptMessage(
 												repliedMessage.text || repliedMessage.ciphertext || '',
-												userPassword
+												userPassword,
 											)
 										} else {
 											repliedText = '[Зашифрованное сообщение]'
@@ -2645,7 +2569,7 @@
 									repliedMessage.sender_id === localStorage.getItem('user_id')
 										? 'Вы'
 										: document.getElementById('chat-username')?.textContent ||
-										  'Собеседник'
+											'Собеседник'
 							}
 						} catch (error) {
 							console.error('Ошибка получения данных ответа:', error)
@@ -2662,7 +2586,7 @@
         `
 					replyPreview.addEventListener('click', function () {
 						const originalMessage = document.querySelector(
-							`.message[data-id="${message.reply_to_message_id}"]`
+							`.message[data-id="${message.reply_to_message_id}"]`,
 						)
 						if (originalMessage) {
 							originalMessage.scrollIntoView({
@@ -2704,7 +2628,7 @@
 									? message.receiver_id
 									: message.sender_id,
 								password,
-								message.sender_id === userId
+								message.sender_id === userId,
 							)
 						} else {
 							displayText = '[Зашифрованное сообщение]'
@@ -2719,7 +2643,7 @@
 						if (userPassword) {
 							displayText = await MessageEncryption.decryptMessage(
 								message.text,
-								userPassword
+								userPassword,
 							)
 						} else {
 							displayText = '[Зашифрованное сообщение]'
@@ -2771,7 +2695,7 @@
 							.getElementById('message-edit')
 							.classList.toggle(
 								'hidden',
-								!isMyMessage || isMediaMessage || isVoiceMessage
+								!isMyMessage || isMediaMessage || isVoiceMessage,
 							)
 						document
 							.getElementById('message-delete')
@@ -2820,7 +2744,7 @@
 					if (insertIndex < messages.length) {
 						messagesContainer.insertBefore(
 							messageElement,
-							messages[insertIndex]
+							messages[insertIndex],
 						)
 					} else {
 						messagesContainer.appendChild(messageElement)
@@ -2838,7 +2762,7 @@
 				if (scrollToBottom) {
 					setTimeout(() => {
 						const messagesWrapper = document.getElementById(
-							'chat-messages-wrapper'
+							'chat-messages-wrapper',
 						)
 						if (messagesWrapper) {
 							messagesWrapper.scrollTop = messagesWrapper.scrollHeight
@@ -2852,8 +2776,6 @@
 
 				return messageElement
 			}
-
-			// Быстрый ответ
 
 			async function handleQuickReply(message) {
 				const messageInput = document.getElementById('message-input')
@@ -2886,7 +2808,7 @@
 												? fullMessageData.receiver_id
 												: fullMessageData.sender_id,
 											password,
-											fullMessageData.sender_id === userId
+											fullMessageData.sender_id === userId,
 										)
 									} else {
 										displayText = '[Зашифрованное сообщение]'
@@ -2901,7 +2823,7 @@
 									if (userPassword) {
 										displayText = await MessageEncryption.decryptMessage(
 											fullMessageData.text,
-											userPassword
+											userPassword,
 										)
 									} else {
 										displayText = '[Зашифрованное сообщение]'
@@ -2944,19 +2866,17 @@
 					const saveResult = await eel.save_reply_state(
 						localStorage.getItem('user_id'),
 						currentChatUserId,
-						message.id
+						message.id,
 					)()
 
 					if (!saveResult.success) {
 						console.error(
 							'Не удалось сохранить состояние ответа:',
-							saveResult.message
+							saveResult.message,
 						)
 					}
 				}
 			}
-
-			// Статус голоса
 
 			async function updateVoiceMessageStatus(messageElement, message) {
 				const voiceElement = messageElement.querySelector('.voice-message')
@@ -2968,8 +2888,6 @@
 				}
 			}
 
-			// Прочтение сообщения
-
 			function updateMessageReadStatus(messageId, isRead) {
 				if (window.messageElements && window.messageElements.has(messageId)) {
 					const messageElement = window.messageElements.get(messageId)
@@ -2980,8 +2898,6 @@
 					}
 				}
 			}
-
-			// Текст сообщения
 
 			function updateMessageText(messageId, newText) {
 				if (window.messageElements && window.messageElements.has(messageId)) {
@@ -2999,21 +2915,19 @@
 				}
 			}
 
-			// Проверка сообщений
-
 			async function checkForNewMessages() {
 				if (!currentChatUserId) return
 
 				try {
 					const newMessages = await eel.check_new_messages(
 						localStorage.getItem('user_id'),
-						lastMessageId
+						lastMessageId,
 					)()
 
 					if (newMessages && newMessages.length > 0) {
 						for (const msg of newMessages) {
 							const existingMessage = document.querySelector(
-								`.message[data-id="${msg.id}"]`
+								`.message[data-id="${msg.id}"]`,
 							)
 							if (existingMessage) {
 								console.log('Сообщение уже существует, пропускаем:', msg.id)
@@ -3046,8 +2960,6 @@
 				}
 			}
 
-			// Загрузка друзей
-
 			async function loadFriends() {
 				console.log('=== НАЧАЛО loadFriends ===')
 				const user_id = localStorage.getItem('user_id')
@@ -3076,7 +2988,7 @@
 								if (friend) {
 									const lastMessage = await eel.get_last_message(
 										user_id,
-										friendId
+										friendId,
 									)()
 									let decryptedText = '[Нет сообщений]'
 									if (lastMessage) {
@@ -3098,13 +3010,13 @@
 																? friendId
 																: lastMessage.sender_id,
 															userPassword,
-															lastMessage.sender_id === user_id
+															lastMessage.sender_id === user_id,
 														)
 													} else {
 														decryptedText =
 															await MessageEncryption.decryptMessage(
 																lastMessage.text,
-																userPassword
+																userPassword,
 															)
 													}
 												} else {
@@ -3123,7 +3035,7 @@
 												...lastMessage,
 												text: decryptedText,
 												is_decrypted: true,
-										  }
+											}
 										: null
 
 									return {
@@ -3158,8 +3070,6 @@
 					console.error('Error loading friends:', error)
 				}
 			}
-
-			// Карточка пользователя
 
 			function createUserCard(userData) {
 				const card = document.createElement('div')
@@ -3253,8 +3163,6 @@
 				return card
 			}
 
-			// Загрузка последних
-
 			async function loadAllLastMessages() {
 				try {
 					const user_id = localStorage.getItem('user_id')
@@ -3266,13 +3174,13 @@
 					}
 
 					console.log(
-						`Загружаем последние сообщения для ${userData.friends.length} друзей...`
+						`Загружаем последние сообщения для ${userData.friends.length} друзей...`,
 					)
 
 					const userPassword = sessionStorage.getItem('user_password')
 					if (!userPassword) {
 						console.warn(
-							'Пароль не найден в sessionStorage. Пропускаем дешифрование.'
+							'Пароль не найден в sessionStorage. Пропускаем дешифрование.',
 						)
 						return
 					}
@@ -3280,7 +3188,7 @@
 						try {
 							const lastMessage = await eel.get_last_message(
 								user_id,
-								friendId
+								friendId,
 							)()
 
 							if (lastMessage) {
@@ -3296,7 +3204,7 @@
 													user_id,
 													friendId,
 													userPassword,
-													isMyMessage
+													isMyMessage,
 												)
 											} else {
 												displayText = '🔒 Зашифрованное сообщение'
@@ -3304,13 +3212,13 @@
 										} else {
 											displayText = await MessageEncryption.decryptMessage(
 												lastMessage.text,
-												userPassword
+												userPassword,
 											)
 										}
 									} catch (decryptError) {
 										console.error(
 											`Ошибка дешифрования для ${friendId}:`,
-											decryptError
+											decryptError,
 										)
 										displayText = '🔒 Зашифрованное сообщение'
 									}
@@ -3319,7 +3227,7 @@
 
 								console.log(
 									`Сообщение дешифровано для пользователя ${friendId}:`,
-									displayText.substring(0, 30) + '...'
+									displayText.substring(0, 30) + '...',
 								)
 							}
 						} catch (friendError) {
@@ -3332,8 +3240,6 @@
 					console.error('Ошибка загрузки всех последних сообщений:', error)
 				}
 			}
-
-			// Контекстное меню
 
 			function showContextMenu(e, userData) {
 				closeContextMenu()
@@ -3356,16 +3262,12 @@
 				contextMenu.style.top = `${e.pageY}px`
 			}
 
-			// Закрытие меню
-
 			function closeContextMenu() {
 				if (contextMenu) {
 					contextMenu.style.display = 'none'
 				}
 				contextMenuTarget = null
 			}
-
-			// Добавление друга
 
 			async function handleAddFriend() {
 				if (!contextMenuTarget) return
@@ -3385,8 +3287,6 @@
 
 				closeContextMenu()
 			}
-
-			// Удаление друга
 
 			async function handleRemoveFriend() {
 				if (!contextMenuTarget) return
@@ -3410,8 +3310,6 @@
 				closeContextMenu()
 			}
 
-			// Результаты поиска
-
 			async function displaySearchResults(users) {
 				const container = document.getElementById('user-container')
 				container.innerHTML = ''
@@ -3430,7 +3328,7 @@
 					const isFriend = currentUser.friends.includes(user.user_id)
 					const lastMessage = await eel.get_last_message(
 						user_id,
-						user.user_id
+						user.user_id,
 					)()
 
 					if (lastMessage && lastMessage.is_encrypted) {
@@ -3439,7 +3337,7 @@
 							if (userPassword) {
 								const chatHistory = await eel.get_encrypted_chat_history(
 									user_id,
-									user.user_id
+									user.user_id,
 								)()
 								if (
 									chatHistory.success &&
@@ -3452,7 +3350,7 @@
 										const decryptedText =
 											await MessageEncryption.decryptMessage(
 												lastMsg.text,
-												userPassword
+												userPassword,
 											)
 										lastMessage.text = decryptedText
 									}
@@ -3475,8 +3373,6 @@
 				updateOnlineStatusInContacts()
 			}
 
-			// Обработчики кнопок
-
 			function initButtonHandlers() {
 				const messageInput = document.getElementById('message-input')
 				const menuIcon = document.querySelector('.menu-icon')
@@ -3491,12 +3387,10 @@
 			}
 			setTimeout(initButtonHandlers, 1000)
 
-			// Меню сообщения
-
 			function initMessageContextMenu() {
 				console.log('initMessageContextMenu вызвана')
 				const messageContextMenu = document.getElementById(
-					'message-context-menu'
+					'message-context-menu',
 				)
 				window.messageContextMenu = messageContextMenu
 				document.addEventListener('click', function (e) {
@@ -3519,7 +3413,7 @@
 							.getElementById('message-edit')
 							.classList.toggle(
 								'hidden',
-								!isMyMessage || isVideoMessage || isVoiceMessage
+								!isMyMessage || isVideoMessage || isVoiceMessage,
 							)
 						document
 							.getElementById('message-delete')
@@ -3561,8 +3455,6 @@
 						messageContextMenu.style.zIndex = '1000'
 					}
 				})
-
-				// Закрытие меню
 
 				function closeMessageContextMenu() {
 					if (messageContextMenu) {
@@ -3611,8 +3503,6 @@
 						closeMessageContextMenu()
 					})
 
-				// Ответ на сообщение
-
 				async function handleReply() {
 					if (!currentContextMessage) return
 
@@ -3644,7 +3534,7 @@
 													? messageData.receiver_id
 													: messageData.sender_id,
 												password,
-												messageData.sender_id === userId
+												messageData.sender_id === userId,
 											)
 										} else {
 											displayText = '[Зашифрованное сообщение]'
@@ -3652,7 +3542,7 @@
 									} catch (decryptError) {
 										console.error(
 											'Ошибка дешифрования ECDH сообщения при ответе:',
-											decryptError
+											decryptError,
 										)
 										displayText = '[Не удалось расшифровать]'
 									}
@@ -3662,7 +3552,7 @@
 										if (userPassword) {
 											displayText = await MessageEncryption.decryptMessage(
 												messageData.text,
-												userPassword
+												userPassword,
 											)
 										} else {
 											displayText = '[Зашифрованное сообщение]'
@@ -3670,7 +3560,7 @@
 									} catch (error) {
 										console.error(
 											'Ошибка дешифрования старого сообщения:',
-											error
+											error,
 										)
 										displayText = '[Не удалось расшифровать]'
 									}
@@ -3682,13 +3572,13 @@
 						const saveResult = await eel.save_reply_state(
 							localStorage.getItem('user_id'),
 							currentChatUserId,
-							messageId
+							messageId,
 						)()
 
 						if (!saveResult.success) {
 							console.error(
 								'Не удалось сохранить состояние ответа:',
-								saveResult.message
+								saveResult.message,
 							)
 						}
 
@@ -3725,15 +3615,13 @@
 
 						console.log(
 							'Состояние ответа сохранено для чата:',
-							currentChatUserId
+							currentChatUserId,
 						)
 					} catch (error) {
 						console.error('Ошибка при обработке ответа:', error)
 						alert('Ошибка при создании ответа')
 					}
 				}
-
-				// Редактирование сообщения
 
 				function handleEdit() {
 					if (!currentContextMessage) {
@@ -3757,7 +3645,7 @@
 								const result = await eel.edit_message(messageId, newText)()
 								if (!result.success) {
 									throw new Error(
-										result.message || 'Не удалось изменить сообщение'
+										result.message || 'Не удалось изменить сообщение',
 									)
 								}
 								return newText
@@ -3781,8 +3669,6 @@
 							}
 						}
 
-						// Потеря фокуса
-
 						const handleBlur = async () => {
 							const newText = input.value.trim()
 							try {
@@ -3794,8 +3680,6 @@
 							}
 							cleanup()
 						}
-
-						// Очистка ресурсов
 
 						const cleanup = () => {
 							input.replaceWith(messageTextElement)
@@ -3813,8 +3697,6 @@
 					}
 				}
 
-				// Закрепление сообщения
-
 				function handlePin() {
 					alert('Функция "Закрепить" будет реализована в будущем')
 					messageContextMenu.classList.add('hidden')
@@ -3822,20 +3704,14 @@
 
 				eel.expose(get_current_user_id)
 
-				// ID пользователя
-
 				function get_current_user_id() {
 					return localStorage.getItem('user_id')
 				}
-
-				// Пересылка сообщения
 
 				function handleForward() {
 					alert('Функция "Переслать" будет реализована в будущем')
 					messageContextMenu.classList.add('hidden')
 				}
-
-				// Копирование сообщения
 
 				function handleCopy() {
 					if (!currentContextMessage) {
@@ -3864,11 +3740,9 @@
 				}
 			}
 
-			// Показ меню
-
 			function showMessageContextMenu(e) {
 				const messageContextMenu = document.getElementById(
-					'message-context-menu'
+					'message-context-menu',
 				)
 				if (!messageContextMenu) return
 
@@ -4070,8 +3944,6 @@
 				})
 			})
 
-			// Дата сообщения
-
 			function formatMessageDate(timestamp) {
 				const messageDate = new Date(timestamp)
 				const today = new Date()
@@ -4082,22 +3954,22 @@
 				const messageDateOnly = new Date(
 					messageDate.getFullYear(),
 					messageDate.getMonth(),
-					messageDate.getDate()
+					messageDate.getDate(),
 				)
 				const todayOnly = new Date(
 					today.getFullYear(),
 					today.getMonth(),
-					today.getDate()
+					today.getDate(),
 				)
 				const yesterdayOnly = new Date(
 					yesterday.getFullYear(),
 					yesterday.getMonth(),
-					yesterday.getDate()
+					yesterday.getDate(),
 				)
 				const twoDaysAgoOnly = new Date(
 					twoDaysAgo.getFullYear(),
 					twoDaysAgo.getMonth(),
-					twoDaysAgo.getDate()
+					twoDaysAgo.getDate(),
 				)
 
 				if (messageDateOnly.getTime() === todayOnly.getTime()) {
@@ -4143,8 +4015,6 @@
 					}
 				}
 			}
-
-			// Создаёт заголовок даты для группировки сообщений
 			function createDateHeader(dateText, dateKey) {
 				const dateHeader = document.createElement('div')
 				dateHeader.className = 'date-header'
@@ -4157,8 +4027,6 @@
 				dateHeader.appendChild(dateContent)
 				return dateHeader
 			}
-
-			// Добавление даты
 
 			function addDateHeaderToMessage(messageElement, timestamp) {
 				const dateKey = new Date(timestamp).toDateString()
@@ -4174,15 +4042,13 @@
 				const messagesContainer = document.getElementById('chat-messages')
 				messagesContainer.insertBefore(dateHeader, messageElement)
 			}
-
-			// Обновляет зафиксированные заголовки дат при прокрутке
 			function updateStickyDateHeaders() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
 				if (!messagesWrapper) return
 
 				const scrollTop = messagesWrapper.scrollTop
 				const dateHeaderElements = Array.from(
-					document.querySelectorAll('.date-header')
+					document.querySelectorAll('.date-header'),
 				)
 
 				let newStickyDate = null
@@ -4213,8 +4079,6 @@
 					currentStickyDate = null
 				}
 			}
-
-			// Инициализирует систему заголовков дат
 			function initDateHeadersSystem() {
 				const messagesWrapper = document.getElementById('chat-messages-wrapper')
 				if (!messagesWrapper) return
@@ -4235,15 +4099,13 @@
 					{
 						root: messagesWrapper,
 						threshold: 1.0,
-					}
+					},
 				)
 
 				document.querySelectorAll('.date-header').forEach(header => {
 					dateHeadersObserver.observe(header)
 				})
 			}
-
-			// Конвертирует UTC время в локальное
 			function convertUTCToLocal(utcTime) {
 				try {
 					if (!utcTime) return null
@@ -4254,14 +4116,10 @@
 					return utcTime
 				}
 			}
-
-			// Получает временную метку в правильном формате
 			function getTimestamp() {
 				const now = new Date()
 				return now.toISOString()
 			}
-
-			// Сравнивает две даты (возвращает true если они в один день)
 			function isSameDay(date1, date2) {
 				const d1 = new Date(date1)
 				const d2 = new Date(date2)
@@ -4271,13 +4129,9 @@
 					d1.getDate() === d2.getDate()
 				)
 			}
-
-			// Получает текущий часовой пояс пользователя
 			function getUserTimezone() {
 				return Intl.DateTimeFormat().resolvedOptions().timeZone
 			}
-
-			// Форматирует дату и время вместе
 			function formatDateTime(timestamp) {
 				try {
 					const date = new Date(timestamp)
@@ -4288,15 +4142,13 @@
 						{
 							hour: '2-digit',
 							minute: '2-digit',
-						}
+						},
 					)}`
 				} catch (error) {
 					console.error('Ошибка форматирования даты и времени:', error)
 					return '--:--'
 				}
 			}
-
-			// Позиционирование меню
 
 			function positionPhotoMenu() {
 				const rect = photoBtn.getBoundingClientRect()
