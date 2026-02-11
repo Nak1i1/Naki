@@ -358,7 +358,7 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
         
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
-        current_time = datetime.now().astimezone()
+        current_time = datetime.utcnow()
         
         message_data = {
             "sender_id": ObjectId(sender_id),
@@ -380,7 +380,7 @@ def send_ecdh_encrypted_message(sender_id, receiver_id, ciphertext_hex, nonce_he
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": current_time.isoformat(),
+            "timestamp": current_time.isoformat() + 'Z',
             "read": read_status
         }
     except Exception as e:
@@ -544,8 +544,7 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
     try:
         is_self_chat = sender_id == receiver_id
         read_status = is_self_chat
-        
-        current_time = datetime.now().astimezone()
+        current_time = datetime.utcnow()
         
         message_data = {
             "sender_id": ObjectId(sender_id),
@@ -565,7 +564,7 @@ def send_encrypted_message(sender_id, receiver_id, encrypted_text, reply_to_mess
         return {
             "success": True,
             "message_id": str(result.inserted_id),
-            "timestamp": current_time.isoformat(),
+            "timestamp": current_time.isoformat() + 'Z',
             "read": read_status
         }
     except Exception as e:
@@ -698,6 +697,14 @@ def get_user_data(user_id):
     except Exception as e:
         logger.error(f"Ошибка получения данных пользователя: {e}")
         return None
+@eel.expose
+def get_server_timestamp():
+    """Получение единого временного штампа от сервера для синхронизации сообщений"""
+    try:
+        return datetime.utcnow().isoformat() + 'Z'
+    except Exception as e:
+        logger.error(f"Ошибка получения временного штампа: {e}")
+        return datetime.utcnow().isoformat() + 'Z'
 
 @eel.expose
 def search_users(search_term, current_user_id):
@@ -872,6 +879,51 @@ def update_last_online(user_id):
         return False
 
 @eel.expose
+def get_last_message_with_decryption(user_id, peer_id):
+    """Получение последнего сообщения с готовыми для отображения данными"""
+    try:
+        message = messages_collection.find_one({
+            "$or": [
+                {"sender_id": ObjectId(user_id), "receiver_id": ObjectId(peer_id)},
+                {"sender_id": ObjectId(peer_id), "receiver_id": ObjectId(user_id)}
+            ],
+            "deleted_for": {"$ne": ObjectId(user_id)}
+        }, sort=[("timestamp", -1)])
+        
+        if not message:
+            return {"success": True, "has_message": False}
+        
+        message_data = {
+            "id": str(message["_id"]),
+            "sender_id": str(message["sender_id"]),
+            "receiver_id": str(message["receiver_id"]),
+            "timestamp": message["timestamp"].isoformat(),
+            "is_encrypted": message.get("is_encrypted", False),
+            "encryption_type": message.get("encryption_type"),
+            "has_message": True
+        }
+        
+        if message.get("is_encrypted"):
+            if message.get("encryption_type") == "ECDH-AES-GCM":
+                message_data.update({
+                    "ciphertext": message.get("ciphertext"),
+                    "nonce": message.get("nonce"),
+                })
+            else:
+                message_data.update({
+                    "text": message.get("encrypted_text", message.get("text", ""))
+                })
+        else:
+            message_data.update({
+                "text": message.get("text", "")
+            })
+        
+        return {"success": True, "message": message_data}
+    except Exception as e:
+        logger.error(f"Error getting last message with decryption: {e}")
+        return {"success": False, "message": str(e)}
+    
+@eel.expose
 def get_last_message(user1_id, user2_id):
     """Получение последнего сообщения в чате между двумя пользователями с полной информацией"""
     try:
@@ -972,6 +1024,29 @@ def get_all_users():
         logger.error(f"Ошибка получения всех пользователей: {e}")
         return []
 
+
+
+@eel.expose
+def notify_message_deleted(message_id, sender_id, receiver_id):
+    """
+    Уведомить клиента об удалении сообщения
+    Эта функция будет вызвана сервером для отправки уведомления
+    """
+    try:
+        # Получаем последнее сообщение после удаления
+        last_message = get_last_message(sender_id, receiver_id)
+        
+        return {
+            "success": True,
+            "message_id": message_id,
+            "sender_id": sender_id,
+            "receiver_id": receiver_id,
+            "last_message": last_message
+        }
+    except Exception as e:
+        logger.error(f"Ошибка уведомления об удалении: {e}")
+        return {"success": False, "message": str(e)}
+
 @eel.expose
 def delete_message(message_id):
     """Удаление сообщения из базы данных с проверкой прав доступа"""
@@ -984,17 +1059,38 @@ def delete_message(message_id):
         if message["sender_id"] != current_user_id:
             return {"success": False, "message": "Вы можете удалять только свои сообщения"}
         
+        # Сохраняем участников чата ДО удаления
+        sender_id = str(message["sender_id"])
+        receiver_id = str(message["receiver_id"])
+        
         result = messages_collection.delete_one({"_id": ObjectId(message_id)})
         
         if result.deleted_count > 0:
             logger.info(f"Сообщение {message_id} успешно удалено")
-            return {"success": True, "message": "Сообщение удалено"}
+            
+            # Получаем последнее сообщение после удаления
+            last_message = get_last_message(sender_id, receiver_id)
+            
+            # Отправляем уведомление получателю
+            try:
+                eel.notify_message_deleted(message_id, sender_id, receiver_id)()
+            except Exception as notify_error:
+                logger.warning(f"Не удалось уведомить получателя: {notify_error}")
+            
+            return {
+                "success": True, 
+                "message": "Сообщение удалено",
+                "sender_id": sender_id,
+                "receiver_id": receiver_id,
+                "last_message": last_message
+            }
         
         return {"success": False, "message": "Сообщение не найдено"}
     except Exception as e:
         logger.error(f"Ошибка удаления сообщения: {e}")
         return {"success": False, "message": "Ошибка при удалении сообщения"}
-
+    
+    
 @eel.expose
 def save_reply_state(user_id, chat_id, message_id):
     """Сохранение состояния ответа для конкретного чата в профиль пользователя"""
@@ -1142,22 +1238,6 @@ def get_current_user_id():
     """Получение ID текущего вошедшего пользователя из сессии"""
     return ""
 
-@eel.expose
-def delete_message_for_me(user_id, message_id):
-    """Удаление сообщения только для конкретного пользователя без удаления для других"""
-    try:
-        result = messages_collection.update_one(
-            {"_id": ObjectId(message_id)},
-            {"$addToSet": {"deleted_for": ObjectId(user_id)}}
-        )
-        
-        if result.modified_count > 0:
-            return {"success": True, "message": "Сообщение удалено только для вас"}
-        
-        return {"success": False, "message": "Сообщение уже было удалено"}
-    except Exception as e:
-        logger.error(f"Ошибка удаления сообщения: {e}")
-        return {"success": False, "message": "Ошибка при удалении сообщения"}
 
 @eel.expose
 def get_message_data(message_id):
@@ -1183,6 +1263,103 @@ def get_message_data(message_id):
     except Exception as e:
         logger.error(f"Ошибка получения данных сообщения: {e}")
         return None
+@eel.expose
+def get_unread_messages_count(user_id, chat_id):
+    """Получить количество непрочитанных сообщений в конкретном чате"""
+    try:
+        count = messages_collection.count_documents({
+            "sender_id": ObjectId(chat_id),
+            "receiver_id": ObjectId(user_id),
+            "read": False
+        })
+        return {"success": True, "count": count}
+    except Exception as e:
+        logger.error(f"Ошибка получения непрочитанных сообщений: {e}")
+        return {"success": False, "count": 0}
+
+@eel.expose
+def get_new_messages(user_id, chat_id, last_message_id=None):
+    """Получить новые сообщения в чате после last_message_id"""
+    try:
+        query = {
+            "$or": [
+                {"sender_id": ObjectId(user_id), "receiver_id": ObjectId(chat_id)},
+                {"sender_id": ObjectId(chat_id), "receiver_id": ObjectId(user_id)}
+            ]
+        }
+        
+        if last_message_id:
+            query["_id"] = {"$gt": ObjectId(last_message_id)}
+        
+        messages = messages_collection.find(query).sort("timestamp", 1)
+        
+        result = []
+        for msg in messages:
+            deleted_for = msg.get("deleted_for", [])
+            if ObjectId(user_id) in deleted_for:
+                continue
+                
+            message_data = {
+                "id": str(msg["_id"]),
+                "sender_id": str(msg["sender_id"]),
+                "receiver_id": str(msg["receiver_id"]),
+                "timestamp": msg["timestamp"].isoformat(),
+                "read": msg.get("read", False),
+                "is_encrypted": msg.get("is_encrypted", False)
+            }
+            
+            if msg.get("is_encrypted"):
+                if msg.get("encryption_type") == "ECDH-AES-GCM":
+                    message_data.update({
+                        "ciphertext": msg.get("ciphertext"),
+                        "nonce": msg.get("nonce"),
+                        "encryption_type": "ECDH-AES-GCM"
+                    })
+                else:
+                    message_data["text"] = msg.get("encrypted_text", "")
+            else:
+                message_data["text"] = msg.get("text", "")
+            
+            if "reply_to_message_id" in msg:
+                message_data["reply_to_message_id"] = str(msg["reply_to_message_id"])
+            
+            result.append(message_data)
+        
+        messages_to_mark = [msg for msg in result if msg["sender_id"] == chat_id and not msg["read"]]
+        if messages_to_mark:
+            message_ids = [ObjectId(msg["id"]) for msg in messages_to_mark]
+            messages_collection.update_many(
+                {"_id": {"$in": message_ids}},
+                {"$set": {"read": True}}
+            )
+            
+        return {"success": True, "messages": result}
+    except Exception as e:
+        logger.error(f"Ошибка получения новых сообщений: {e}")
+        return {"success": False, "messages": []}
+
+@eel.expose
+def check_message_read_status_bulk(message_ids):
+    """Проверить статус прочтения для списка сообщений"""
+    try:
+        object_ids = []
+        for id in message_ids:
+            try:
+                object_ids.append(ObjectId(id))
+            except:
+                continue
+                
+        if not object_ids:
+            return {}
+            
+        messages = messages_collection.find({
+            "_id": {"$in": object_ids}
+        })
+        
+        return {str(msg["_id"]): msg.get("read", False) for msg in messages}
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса прочтения: {e}")
+        return {}
 
 
 if __name__ == '__main__':
