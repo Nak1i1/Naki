@@ -1,207 +1,201 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Arial', sans-serif;
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+	font-family: 'Arial', sans-serif;
 }
 
 body {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background-color: #f5f5f5;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	height: 100vh;
+	background-color: #f5f5f5;
 }
 
 .login-container {
-    background-color: white;
-    border-radius: 12px;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-    padding: 40px;
-    width: 400px;
-    text-align: center;
+	background-color: white;
+	border-radius: 12px;
+	box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+	padding: 40px;
+	width: 400px;
+	text-align: center;
 }
 
 h1 {
-    color: #333;
-    margin-bottom: 30px;
-    font-size: 24px;
+	color: #333;
+	margin-bottom: 30px;
+	font-size: 24px;
 }
 
 .switch-container {
-    display: flex;
-    position: relative;
-    margin-bottom: 30px;
-    background: #f0f0f0;
-    border-radius: 30px;
-    padding: 3px;
+	display: flex;
+	position: relative;
+	margin-bottom: 30px;
+	background: #f0f0f0;
+	border-radius: 30px;
+	padding: 3px;
 }
 
 .switch-option {
-    flex: 1;
-    padding: 10px;
-    cursor: pointer;
-    z-index: 2;
-    transition: color 0.3s;
+	flex: 1;
+	padding: 10px;
+	cursor: pointer;
+	z-index: 2;
+	transition: color 0.3s;
 }
 
 .switch-option.active {
-    color: #4CAF50;
-    font-weight: bold;
+	color: #4caf50;
+	font-weight: bold;
 }
 
 .switch-slider {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 50%;
-    height: calc(100% - 6px);
-    background: white;
-    border-radius: 30px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s ease;
-    z-index: 1;
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 50%;
+	height: calc(100% - 6px);
+	background: white;
+	border-radius: 30px;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+	transition: transform 0.3s ease;
+	z-index: 1;
 }
 
 .form-container {
-    display: flex;
-    flex-direction: column;
-    /* gap: 15px; Уберём, чтобы задать отступы индивидуально */
+	display: flex;
+	flex-direction: column;
 }
 
-/* Отступы между input в обеих формах */
 #register-form input,
 #login-form input {
-    display: block;
-    width: 100%;
-    margin-bottom: 15px; /* расстояние между полями */
-    padding: 12px 15px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 16px;
-    outline: none;
-    transition: border-color 0.3s;
+	display: block;
+	width: 100%;
+	margin-bottom: 15px;
+	padding: 12px 15px;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	font-size: 16px;
+	outline: none;
+	transition: border-color 0.3s;
 }
 
 #register-form input:focus,
 #login-form input:focus {
-    border-color: #4CAF50;
+	border-color: #4caf50;
 }
-
-/* Кнопка регистрации — отделена от полей большим отступом сверху */
 #register-btn {
-    margin-top: 20px; /* отступ сверху */
-    padding: 12px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: bold;
-    transition: background-color 0.3s;
-    width: 100%; /* кнопка во всю ширину */
+	margin-top: 20px;
+	padding: 12px;
+	background-color: #4caf50;
+	color: white;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 16px;
+	font-weight: bold;
+	transition: background-color 0.3s;
+	width: 100%;
 }
 
 #register-btn:hover {
-    background-color: #45a049;
+	background-color: #45a049;
 }
 
-/* Кнопка входа — отдельная строка, по центру, с отступом сверху */
 #login-btn {
-    margin-top: 20px; /* отступ сверху */
-    padding: 12px 40px; /* чуть уже, чтобы не на всю ширину */
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: bold;
-    transition: background-color 0.3s;
-    display: block;
-    margin-left: auto;
-    margin-right: auto;
+	margin-top: 20px;
+	padding: 12px 40px;
+	background-color: #4caf50;
+	color: white;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 16px;
+	font-weight: bold;
+	transition: background-color 0.3s;
+	display: block;
+	margin-left: auto;
+	margin-right: auto;
 }
 
 #login-btn:hover {
-    background-color: #45a049;
+	background-color: #45a049;
 }
 
 .hidden {
-    display: none;
+	display: none;
 }
 
 #message {
-    padding: 10px;
-    border-radius: 8px;
-    margin-top: 15px;
+	padding: 10px;
+	border-radius: 8px;
+	margin-top: 15px;
 }
 
 .success {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
+	background-color: #d4edda;
+	color: #155724;
+	border: 1px solid #c3e6cb;
 }
 
 .error {
-    background-color: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+	background-color: #f8d7da;
+	color: #721c24;
+	border: 1px solid #f5c6cb;
 }
 
-/* Добавьте в конец style.css */
 .logout-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 300px;
-    background-color: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    z-index: 101;
-    text-align: center;
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: 300px;
+	background-color: white;
+	border-radius: 12px;
+	padding: 20px;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+	z-index: 101;
+	text-align: center;
 }
 
 .logout-text {
-    color: #ff4444;
-    font-weight: bold;
-    font-size: 18px;
-    margin-bottom: 20px;
+	color: #ff4444;
+	font-weight: bold;
+	font-size: 18px;
+	margin-bottom: 20px;
 }
 
 .logout-buttons {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
 }
 
 .logout-button {
-    flex: 1;
-    padding: 10px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s;
+	flex: 1;
+	padding: 10px;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 16px;
+	transition: background-color 0.2s;
 }
 
 .logout-confirm {
-    background-color: #ff4444;
-    color: white;
+	background-color: #ff4444;
+	color: white;
 }
 
 .logout-confirm:hover {
-    background-color: #cc0000;
+	background-color: #cc0000;
 }
 
 .logout-cancel {
-    background-color: #f5f5f5;
-    color: #333;
+	background-color: #f5f5f5;
+	color: #333;
 }
 
 .logout-cancel:hover {
-    background-color: #e0e0e0;
+	background-color: #e0e0e0;
 }
