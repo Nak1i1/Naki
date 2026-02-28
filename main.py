@@ -28,7 +28,6 @@ try:
 
     users_collection = db["users"]
     messages_collection = db["messages"]
-    shared_keys_collection = db["shared_keys"]
     ecdh_keys_collection = db["ecdh_keys"]
 
     logger.info("Успешное подключение к MongoDB")
@@ -210,75 +209,6 @@ def get_public_key(user_id):
     except Exception as e:
         logger.error(f"Ошибка получения публичного ключа: {e}")
         return {"success": False, "message": str(e)}
-
-
-@eel.expose
-def compute_shared_secret(user_id, peer_public_key_pem, password):
-    try:
-        key_data = ecdh_keys_collection.find_one({"user_id": ObjectId(user_id)})
-        if not key_data:
-            return {"success": False, "message": "Ключевая пара не найдена"}
-
-        decryption_result = get_decrypted_private_key(user_id, password)
-        if not decryption_result["success"]:
-            return decryption_result
-
-        private_key = serialization.load_pem_private_key(
-            decryption_result["private_key"].encode("utf-8"),
-            password=None,
-        )
-
-        peer_public_key = serialization.load_pem_public_key(peer_public_key_pem.encode("utf-8"))
-
-        shared_secret = private_key.exchange(ec.ECDH(), peer_public_key)
-        derived_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=HKDF_INFO,
-        ).derive(shared_secret)
-
-        peer_key_data = ecdh_keys_collection.find_one({"public_key": peer_public_key_pem})
-        if not peer_key_data:
-            return {"success": False, "message": "Публичный ключ собеседника не найден в базе"}
-
-        peer_id = peer_key_data["user_id"]
-
-        shared_keys_collection.update_one(
-            {"user_id": ObjectId(user_id), "peer_id": peer_id},
-            {"$set": {"shared_secret": derived_key.hex(), "computed_at": datetime.utcnow()}},
-            upsert=True,
-        )
-
-        logger.info(f"Вычислен общий секрет для пользователя {user_id}")
-        return {"success": True, "shared_secret": derived_key.hex()}
-    except Exception as e:
-        logger.error(f"Ошибка вычисления общего секрета: {e}")
-        return {"success": False, "message": str(e)}
-
-
-@eel.expose
-def get_shared_key(user_id, peer_id):
-    try:
-        key_data = shared_keys_collection.find_one(
-            {
-                "$or": [
-                    {"user_id": ObjectId(user_id), "peer_id": ObjectId(peer_id)},
-                    {"user_id": ObjectId(peer_id), "peer_id": ObjectId(user_id)},
-                ]
-            }
-        )
-        if key_data:
-            return {
-                "success": True,
-                "shared_secret": key_data["shared_secret"],
-                "computed_at": key_data.get("computed_at"),
-            }
-        return {"success": False, "message": "Общий ключ не найден"}
-    except Exception as e:
-        logger.error(f"Ошибка получения общего ключа: {e}")
-        return {"success": False, "message": str(e)}
-
 
 @eel.expose
 def register_user(nickname, email, password):
