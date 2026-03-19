@@ -502,7 +502,7 @@
 							currentChatUserId,
 							ciphertextHex,
 							nonceHex,
-							replyToMessageId, // Теперь передаём корректный ID
+							replyToMessageId,
 						)()
 
 						if (result.success) {
@@ -515,7 +515,7 @@
 										repliedMessageData = {
 											id: replyToMessageId,
 											sender_id: fullMessageData.sender_id,
-											text: text, // Для предпросмотра используем текущий текст
+											text: text,
 										}
 									}
 								} catch (error) {
@@ -538,7 +538,7 @@
 								is_encrypted: true,
 								encryption_type: 'ECDH-AES-GCM',
 								reply_to_message_id: replyToMessageId,
-								replied_message: repliedMessageData, // Добавляем данные ответного сообщения
+								replied_message: repliedMessageData, 
 							}
 
 							await addMessageToChat(messageData, true, true)
